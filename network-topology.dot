@@ -1,0 +1,93 @@
+digraph K8sNetworkPolicy {
+  rankdir=LR;
+  node [shape=box, style=filled, fontname="Arial"];
+  edge [fontname="Arial", fontsize=10];
+
+  subgraph cluster_0 {
+    label="入口层";
+    style=filled;
+    color="#E8F5E9";
+    "nginx-ingress" [fillcolor="#EF5350"];
+    "api-gateway" [fillcolor="#EF5350"];
+    "web-frontend" [fillcolor="#EF5350"];
+  }
+
+  subgraph cluster_1 {
+    label="业务服务层";
+    style=filled;
+    color="#E3F2FD";
+    "user-service" [fillcolor="#FFEE58"];
+    "order-service" [fillcolor="#FFA726"];
+    "notification-service" [fillcolor="#66BB6A"];
+    "product-service" [fillcolor="#FFEE58"];
+    "payment-service" [fillcolor="#FFEE58"];
+    "search-service" [fillcolor="#FFEE58"];
+    "auth-service" [fillcolor="#66BB6A"];
+  }
+
+  subgraph cluster_2 {
+    label="数据层";
+    style=filled;
+    color="#FFF3E0";
+    "elasticsearch" [fillcolor="#66BB6A"];
+    "user-db" [fillcolor="#66BB6A"];
+    "order-db" [fillcolor="#66BB6A"];
+    "payment-db" [fillcolor="#66BB6A"];
+    "redis-cache" [fillcolor="#66BB6A"];
+    "product-db" [fillcolor="#66BB6A"];
+    "audit-db" [fillcolor="#66BB6A"];
+  }
+
+  subgraph cluster_3 {
+    label="基础设施";
+    style=filled;
+    color="#F3E5F5";
+    "rabbitmq" [fillcolor="#66BB6A"];
+  }
+
+  subgraph cluster_4 {
+    label="监控";
+    style=filled;
+    color="#ECEFF1";
+    "log-collector" [fillcolor="#66BB6A"];
+    "prometheus" [fillcolor="#EF5350"];
+  }
+
+  "nginx-ingress" -> "web-frontend" [label="3000/TCP"];
+  "nginx-ingress" -> "api-gateway" [label="8080/TCP"];
+  "web-frontend" -> "api-gateway" [label="8080/TCP"];
+  "api-gateway" -> "user-service" [label="8081/TCP"];
+  "api-gateway" -> "order-service" [label="8082/TCP"];
+  "api-gateway" -> "product-service" [label="8083/TCP"];
+  "api-gateway" -> "search-service" [label="8084/TCP"];
+  "api-gateway" -> "auth-service" [label="8085/TCP"];
+  "user-service" -> "auth-service" [label="8085/TCP"];
+  "auth-service" -> "redis-cache" [label="6379/TCP"];
+  "auth-service" -> "user-db" [label="5432/TCP"];
+  "order-service" -> "user-service" [label="8081/TCP"];
+  "user-service" -> "user-db" [label="5432/TCP"];
+  "user-service" -> "redis-cache" [label="6379/TCP"];
+  "user-service" -> "notification-service" [label="8086/TCP"];
+  "order-service" -> "order-db" [label="5432/TCP"];
+  "order-service" -> "product-service" [label="8083/TCP"];
+  "order-service" -> "payment-service" [label="8087/TCP"];
+  "order-service" -> "rabbitmq" [label="5672/TCP"];
+  "search-service" -> "product-service" [label="8083/TCP"];
+  "product-service" -> "product-db" [label="5432/TCP"];
+  "product-service" -> "redis-cache" [label="6379/TCP"];
+  "product-service" -> "rabbitmq" [label="5672/TCP"];
+  "search-service" -> "elasticsearch" [label="9200/TCP"];
+  "payment-service" -> "payment-db" [label="5432/TCP"];
+  "payment-service" -> "rabbitmq" [label="5672/TCP"];
+  "rabbitmq" -> "notification-service" [label="8086/TCP"];
+  "notification-service" -> "redis-cache" [label="6379/TCP"];
+  "log-collector" -> "elasticsearch" [label="9200/TCP"];
+  "prometheus" -> "api-gateway" [label="9090/TCP"];
+  "prometheus" -> "user-service" [label="9090/TCP"];
+  "prometheus" -> "order-service" [label="9090/TCP"];
+  "prometheus" -> "product-service" [label="9090/TCP"];
+  "prometheus" -> "rabbitmq" [label="9090/TCP"];
+  "prometheus" -> "redis-cache" [label="9090/TCP"];
+  "order-service" -> "audit-db" [label="5432/TCP"];
+  "audit-db" -> "rabbitmq" [label="5672/TCP"];
+}
