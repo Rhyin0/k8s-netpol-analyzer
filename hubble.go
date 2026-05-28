@@ -14,21 +14,21 @@ import (
 
 // FlowRecord 表示一条从 Hubble 采集到的流量记录
 type FlowRecord struct {
-	Timestamp   time.Time
-	SrcPod      string
-	DstPod      string
+	Timestamp    time.Time
+	SrcPod       string
+	DstPod       string
 	SrcNamespace string
 	DstNamespace string
-	DstPort     uint32
-	Protocol    string
-	Verdict     string // FORWARDED 或 DROPPED
+	DstPort      uint32
+	Protocol     string
+	Verdict      string // FORWARDED 或 DROPPED
 }
 
 // FlowCollector 持续从 Hubble 采集流量数据
 type FlowCollector struct {
-	mu      sync.RWMutex
-	flows   []FlowRecord
-	edges   map[string]*LiveEdge // 实时流量拓扑
+	mu         sync.RWMutex
+	flows      []FlowRecord
+	edges      map[string]*LiveEdge // 实时流量拓扑
 	hubbleAddr string
 }
 
@@ -38,9 +38,9 @@ type LiveEdge struct {
 	To       string
 	Port     uint32
 	Protocol string
-	Count    int64     // 观测到的次数
+	Count    int64 // 观测到的次数
 	LastSeen time.Time
-	Dropped  int64     // 被拒绝的次数
+	Dropped  int64 // 被拒绝的次数
 }
 
 func NewFlowCollector(hubbleAddr string) *FlowCollector {
@@ -114,10 +114,15 @@ func (fc *FlowCollector) observe(ctx context.Context, client observerpb.Observer
 			continue
 		}
 
-		// 只关注有 Pod 名字的 Flow（过滤掉系统级流量）
+		// 只关注 demo namespace 的业务 Pod
+		srcNs := src.GetNamespace()
+		dstNs := dst.GetNamespace()
 		srcPod := src.GetPodName()
 		dstPod := dst.GetPodName()
 		if srcPod == "" || dstPod == "" {
+			continue
+		}
+		if srcNs != "demo" || dstNs != "demo" {
 			continue
 		}
 
