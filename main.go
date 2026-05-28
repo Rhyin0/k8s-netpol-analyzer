@@ -1,177 +1,191 @@
 package main
 
 import (
+	"context"
 	"fmt"
 	"os"
+	"os/signal"
 	"strings"
+	"syscall"
+	"time"
 
 	"gopkg.in/yaml.v3"
 )
 
-// NetworkPolicy YAML 结构定义
-type NetworkPolicy struct {
-	APIVersion string   `yaml:"apiVersion"`
-	Kind       string   `yaml:"kind"`
-	Metadata   Metadata `yaml:"metadata"`
-	Spec       Spec     `yaml:"spec"`
-}
-
-type Metadata struct {
-	Name      string `yaml:"name"`
-	Namespace string `yaml:"namespace"`
-}
-
-type Spec struct {
-	PodSelector PodSelector   `yaml:"podSelector"`
-	PolicyTypes []string      `yaml:"policyTypes"`
-	Ingress     []IngressRule `yaml:"ingress"`
-	Egress      []EgressRule  `yaml:"egress"`
-}
-
-type PodSelector struct {
-	MatchLabels map[string]string `yaml:"matchLabels"`
-}
-
-type IngressRule struct {
-	From  []Peer     `yaml:"from"`
-	Ports []PortRule `yaml:"ports"`
-}
-
-type EgressRule struct {
-	To    []Peer     `yaml:"to"`
-	Ports []PortRule `yaml:"ports"`
-}
-
-type Peer struct {
-	PodSelector PodSelector `yaml:"podSelector"`
-}
-
-type PortRule struct {
-	Protocol string `yaml:"protocol"`
-	Port     int    `yaml:"port"`
-}
-
-// 有向图：表示 Pod 之间的可达性
-type Edge struct {
-	From     string
-	To       string
-	Port     int
-	Protocol string
-}
-
 func main() {
+	fmt.Println("=== K8s NetworkPolicy Analyzer v2 ===")
+	fmt.Println()
+
+	// ========== Phase 1: 静态分析（保留原有功能）==========
+
 	// 读取 YAML 文件
 	data, err := os.ReadFile("testdata/policies.yaml")
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "读取文件失败: %v\n", err)
+		fmt.Fprintf(os.Stderr, "读取策略文件失败（跳过静态分析）: %v\n", err)
+	}
+
+	var policies []NetworkPolicy
+	var staticEdges []Edge
+
+	if err == nil {
+		docs := strings.Split(string(data), "---")
+		for _, doc := range docs {
+			doc = strings.TrimSpace(doc)
+			if doc == "" {
+				continue
+			}
+			var policy NetworkPolicy
+			if err := yaml.Unmarshal([]byte(doc), &policy); err != nil {
+				fmt.Fprintf(os.Stderr, "解析YAML失败: %v\n", err)
+				continue
+			}
+			policies = append(policies, policy)
+		}
+
+		fmt.Printf("解析到 %d 条 NetworkPolicy\n\n", len(policies))
+
+		// 构建静态可达性边
+		for _, p := range policies {
+			target := labelStr(p.Spec.PodSelector.MatchLabels)
+			for _, rule := range p.Spec.Ingress {
+				for _, from := range rule.From {
+					source := labelStr(from.PodSelector.MatchLabels)
+					for _, port := range rule.Ports {
+						staticEdges = append(staticEdges, Edge{
+							From:     source,
+							To:       target,
+							Port:     port.Port,
+							Protocol: port.Protocol,
+						})
+					}
+				}
+			}
+			for _, rule := range p.Spec.Egress {
+				for _, to := range rule.To {
+					dest := labelStr(to.PodSelector.MatchLabels)
+					for _, port := range rule.Ports {
+						staticEdges = append(staticEdges, Edge{
+							From:     target,
+							To:       dest,
+							Port:     port.Port,
+							Protocol: port.Protocol,
+						})
+					}
+				}
+			}
+		}
+		staticEdges = dedup(staticEdges)
+
+		fmt.Println("=== 策略拓扑（静态）===")
+		for _, e := range staticEdges {
+			fmt.Printf("  %s --> %s [%s/%d]\n", e.From, e.To, e.Protocol, e.Port)
+		}
+		fmt.Println()
+	}
+
+	// ========== Phase 2: 动态流量采集 ==========
+
+	// Hubble Relay 地址（通过 port-forward 暴露到本地）
+	hubbleAddr := "localhost:4245"
+	if addr := os.Getenv("HUBBLE_ADDR"); addr != "" {
+		hubbleAddr = addr
+	}
+
+	// 创建 FlowCollector
+	collector := NewFlowCollector(hubbleAddr)
+
+	// 创建 Prometheus 指标
+	metrics := NewMetrics(collector)
+
+	// 启动 Prometheus HTTP server（goroutine）
+	go StartMetricsServer(9090)
+
+	// 启动 Hubble 流量采集（goroutine）
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	if err := collector.Start(ctx); err != nil {
+		fmt.Fprintf(os.Stderr, "启动流量采集失败: %v\n", err)
 		os.Exit(1)
 	}
 
-	// 按 --- 分割多个文档
-	docs := strings.Split(string(data), "---")
-	var policies []NetworkPolicy
+	// 定期更新指标
+	go func() {
+		ticker := time.NewTicker(10 * time.Second)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-ticker.C:
+				liveEdges := collector.GetLiveEdges()
+				metrics.UpdateFromLiveEdges(liveEdges)
+				metrics.UpdateSpreadMetrics(liveEdges)
 
-	for _, doc := range docs {
-		doc = strings.TrimSpace(doc)
-		if doc == "" {
-			continue
-		}
-		var policy NetworkPolicy
-		if err := yaml.Unmarshal([]byte(doc), &policy); err != nil {
-			fmt.Fprintf(os.Stderr, "解析YAML失败: %v\n", err)
-			continue
-		}
-		policies = append(policies, policy)
-	}
+				// 打印实时状态
+				fmt.Printf("\n[%s] 已采集 %d 条 Flow，发现 %d 条实时边\n",
+					time.Now().Format("15:04:05"),
+					collector.GetFlowCount(),
+					len(liveEdges))
 
-	fmt.Printf("解析到 %d 条 NetworkPolicy\n\n", len(policies))
+				// 显示实时流量拓扑
+				if len(liveEdges) > 0 {
+					fmt.Println("  实时流量拓扑:")
+					for _, e := range liveEdges {
+						fmt.Printf("    %s --> %s [%s/%d] 次数:%d 拒绝:%d\n",
+							e.From, e.To, e.Protocol, e.Port, e.Count, e.Dropped)
+					}
+				}
 
-	// 构建可达性边
-	var edges []Edge
-
-	for _, p := range policies {
-		target := labelStr(p.Spec.PodSelector.MatchLabels)
-
-		// 从 ingress 规则提取：谁能访问我
-		for _, rule := range p.Spec.Ingress {
-			for _, from := range rule.From {
-				source := labelStr(from.PodSelector.MatchLabels)
-				for _, port := range rule.Ports {
-					edges = append(edges, Edge{
-						From:     source,
-						To:       target,
-						Port:     port.Port,
-						Protocol: port.Protocol,
-					})
+				// 对比静态策略和实际流量
+				if len(staticEdges) > 0 && len(liveEdges) > 0 {
+					compareTopologies(staticEdges, liveEdges)
 				}
 			}
 		}
+	}()
 
-		// 从 egress 规则提取：我能访问谁
-		for _, rule := range p.Spec.Egress {
-			for _, to := range rule.To {
-				dest := labelStr(to.PodSelector.MatchLabels)
-				for _, port := range rule.Ports {
-					edges = append(edges, Edge{
-						From:     target,
-						To:       dest,
-						Port:     port.Port,
-						Protocol: port.Protocol,
-					})
-				}
-			}
+	fmt.Println()
+	fmt.Println("程序已启动，正在采集流量数据...")
+	fmt.Println("  Prometheus 指标: http://localhost:9090/metrics")
+	fmt.Println("  按 Ctrl+C 退出")
+	fmt.Println()
+
+	// 等待退出信号
+	sigCh := make(chan os.Signal, 1)
+	signal.Notify(sigCh, syscall.SIGINT, syscall.SIGTERM)
+	<-sigCh
+
+	fmt.Println("\n正在关闭...")
+	cancel()
+	time.Sleep(1 * time.Second)
+	fmt.Println("已退出")
+}
+
+// compareTopologies 对比静态策略拓扑和实际流量拓扑
+func compareTopologies(staticEdges []Edge, liveEdges []LiveEdge) {
+	// 构建实际流量的 key 集合
+	liveSet := make(map[string]bool)
+	for _, e := range liveEdges {
+		// 用 from->to 作为 key（不含端口，因为端口可能不完全匹配）
+		key := fmt.Sprintf("%s->%s", e.From, e.To)
+		liveSet[key] = true
+	}
+
+	// 找出策略允许但从未发生的边
+	var overpermitted []string
+	for _, e := range staticEdges {
+		key := fmt.Sprintf("%s->%s", e.From, e.To)
+		if !liveSet[key] {
+			overpermitted = append(overpermitted, fmt.Sprintf("%s->%s:%d", e.From, e.To, e.Port))
 		}
 	}
 
-	// 去重
-	edges = dedup(edges)
-
-	// 输出可达性图
-	fmt.Println("=== 可达性图 (有向边) ===")
-	for _, e := range edges {
-		fmt.Printf("  %s --> %s  [%s/%d]\n", e.From, e.To, e.Protocol, e.Port)
-	}
-
-	// 输出邻接表
-	fmt.Println("\n=== 邻接表 ===")
-	adj := make(map[string][]string)
-	for _, e := range edges {
-		adj[e.From] = append(adj[e.From], fmt.Sprintf("%s:%d", e.To, e.Port))
-	}
-	for node, neighbors := range adj {
-		fmt.Printf("  %s -> %v\n", node, neighbors)
-	}
-
-	// 全节点风险分析
-	fmt.Println("\n" + strings.Repeat("=", 50))
-	risks := AnalyzeAllNodes(edges)
-	PrintRiskReport(risks)
-
-	// 策略合规检查
-	fmt.Println("\n" + strings.Repeat("=", 50))
-	issues := CheckCompliance(policies, edges)
-	PrintComplianceReport(issues)
-
-	// 拓扑指标分析
-	fmt.Println("\n" + strings.Repeat("=", 50))
-	metrics := ComputeTopology(edges)
-	PrintTopologyReport(metrics)
-
-	// 导出可视化
-	dotFile := "network-topology.dot"
-	if err := ExportDOT(edges, risks, dotFile); err != nil {
-		fmt.Fprintf(os.Stderr, "导出DOT失败: %v\n", err)
-	} else {
-		fmt.Printf("\n拓扑图已导出到 %s\n", dotFile)
-		fmt.Println("用 Graphviz 渲染: dot -Tpng network-topology.dot -o topology.png")
-	}
-
-	// 模拟不同入侵点
-	testSources := []string{"api-gateway", "order-service", "redis-cache", "legacy-app"}
-	for _, src := range testSources {
-		result := SimulateSpread(edges, src)
-		PrintSpreadResult(result)
-		fmt.Println(strings.Repeat("-", 50))
+	if len(overpermitted) > 0 {
+		fmt.Printf("  过度授权（策略允许但从未发生）: %d 条\n", len(overpermitted))
+		for _, edge := range overpermitted {
+			fmt.Printf("    ⚠ %s\n", edge)
+		}
 	}
 }
 

@@ -4,53 +4,53 @@ digraph K8sNetworkPolicy {
   edge [fontname="Arial", fontsize=10];
 
   subgraph cluster_0 {
-    label="入口层";
-    style=filled;
-    color="#E8F5E9";
-    "nginx-ingress" [fillcolor="#EF5350"];
-    "api-gateway" [fillcolor="#EF5350"];
-    "web-frontend" [fillcolor="#EF5350"];
-  }
-
-  subgraph cluster_1 {
     label="业务服务层";
     style=filled;
     color="#E3F2FD";
-    "user-service" [fillcolor="#FFEE58"];
-    "order-service" [fillcolor="#FFA726"];
     "notification-service" [fillcolor="#66BB6A"];
-    "product-service" [fillcolor="#FFEE58"];
     "payment-service" [fillcolor="#FFEE58"];
-    "search-service" [fillcolor="#FFEE58"];
     "auth-service" [fillcolor="#66BB6A"];
+    "order-service" [fillcolor="#FFA726"];
+    "product-service" [fillcolor="#FFEE58"];
+    "user-service" [fillcolor="#FFEE58"];
+    "search-service" [fillcolor="#FFEE58"];
   }
 
-  subgraph cluster_2 {
+  subgraph cluster_1 {
     label="数据层";
     style=filled;
     color="#FFF3E0";
     "elasticsearch" [fillcolor="#66BB6A"];
-    "user-db" [fillcolor="#66BB6A"];
     "order-db" [fillcolor="#66BB6A"];
     "payment-db" [fillcolor="#66BB6A"];
+    "audit-db" [fillcolor="#66BB6A"];
     "redis-cache" [fillcolor="#66BB6A"];
     "product-db" [fillcolor="#66BB6A"];
-    "audit-db" [fillcolor="#66BB6A"];
+    "user-db" [fillcolor="#66BB6A"];
   }
 
-  subgraph cluster_3 {
+  subgraph cluster_2 {
     label="基础设施";
     style=filled;
     color="#F3E5F5";
     "rabbitmq" [fillcolor="#66BB6A"];
   }
 
-  subgraph cluster_4 {
+  subgraph cluster_3 {
     label="监控";
     style=filled;
     color="#ECEFF1";
     "log-collector" [fillcolor="#66BB6A"];
     "prometheus" [fillcolor="#EF5350"];
+  }
+
+  subgraph cluster_4 {
+    label="入口层";
+    style=filled;
+    color="#E8F5E9";
+    "nginx-ingress" [fillcolor="#EF5350"];
+    "api-gateway" [fillcolor="#EF5350"];
+    "web-frontend" [fillcolor="#EF5350"];
   }
 
   "nginx-ingress" -> "web-frontend" [label="3000/TCP"];
