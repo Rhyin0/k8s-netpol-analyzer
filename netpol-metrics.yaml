@@ -1,0 +1,26 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: netpol-analyzer
+  namespace: demo
+  labels:
+    app: netpol-analyzer
+spec:
+  type: ExternalName
+  externalName: host.docker.internal
+  ports:
+    - port: 9090
+      targetPort: 9090
+---
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: netpol-analyzer
+  namespace: demo
+spec:
+  selector:
+    matchLabels:
+      app: netpol-analyzer
+  endpoints:
+    - port: "9090"
+      interval: 10s

@@ -1,0 +1,13 @@
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: analyzer-egress
+  namespace: demo
+spec:
+  podSelector:
+    matchLabels:
+      app: netpol-analyzer
+  policyTypes:
+    - Egress
+  egress:
+    - {}

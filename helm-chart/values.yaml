@@ -1,0 +1,22 @@
+image:
+  repository: netpol-analyzer
+  tag: latest
+  pullPolicy: IfNotPresent
+
+hubble:
+  address: "hubble-relay.kube-system.svc.cluster.local:4245"
+
+metrics:
+  port: 9090
+  scrapeInterval: 10s
+
+resources:
+  limits:
+    cpu: 200m
+    memory: 128Mi
+  requests:
+    cpu: 100m
+    memory: 64Mi
+
+grafana:
+  dashboardEnabled: true

@@ -1,0 +1,74 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: demo
+---
+apiVersion: v1
+kind: Pod
+metadata:
+  name: frontend
+  namespace: demo
+  labels:
+    app: frontend
+spec:
+  containers:
+    - name: frontend
+      image: nginx:alpine
+      ports:
+        - containerPort: 80
+---
+apiVersion: v1
+kind: Pod
+metadata:
+  name: api-server
+  namespace: demo
+  labels:
+    app: api-server
+spec:
+  containers:
+    - name: api-server
+      image: nginx:alpine
+      ports:
+        - containerPort: 80
+---
+apiVersion: v1
+kind: Pod
+metadata:
+  name: order-service
+  namespace: demo
+  labels:
+    app: order-service
+spec:
+  containers:
+    - name: order-service
+      image: nginx:alpine
+      ports:
+        - containerPort: 80
+---
+apiVersion: v1
+kind: Pod
+metadata:
+  name: database
+  namespace: demo
+  labels:
+    app: database
+spec:
+  containers:
+    - name: database
+      image: nginx:alpine
+      ports:
+        - containerPort: 80
+---
+apiVersion: v1
+kind: Pod
+metadata:
+  name: redis-cache
+  namespace: demo
+  labels:
+    app: redis-cache
+spec:
+  containers:
+    - name: redis-cache
+      image: nginx:alpine
+      ports:
+        - containerPort: 80

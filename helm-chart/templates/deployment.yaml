@@ -1,0 +1,30 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ .Release.Name }}-analyzer
+  namespace: {{ .Release.Namespace }}
+  labels:
+    app: netpol-analyzer
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: netpol-analyzer
+  template:
+    metadata:
+      labels:
+        app: netpol-analyzer
+    spec:
+      containers:
+        - name: analyzer
+          image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          env:
+            - name: HUBBLE_ADDR
+              value: "{{ .Values.hubble.address }}"
+          ports:
+            - name: metrics
+              containerPort: {{ .Values.metrics.port }}
+              protocol: TCP
+          resources:
+            {{- toYaml .Values.resources | nindent 12 }}
