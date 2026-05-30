@@ -4,7 +4,7 @@ image:
   pullPolicy: IfNotPresent
 
 hubble:
-  address: "hubble-relay.kube-system.svc.cluster.local:4245"
+  address: "hubble-relay.kube-system.svc.cluster.local:80"
 
 metrics:
   port: 9090
