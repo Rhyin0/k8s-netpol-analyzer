@@ -70,6 +70,11 @@ A real-time Kubernetes network security analysis tool that combines static Netwo
 
 ## Quick Start
 
+### Can do One-click deployment
+```bash
+.\deploy.ps1
+```
+
 ### 1. Create the Kind cluster
 
 ```bash
@@ -81,6 +86,16 @@ kind create cluster --config kind-config.yaml --name netpol-lab
 ```bash
 cilium install --set hubble.relay.enabled=true --set hubble.ui.enabled=true
 cilium status --wait
+```
+
+If you are using an VPN, you can manually pull the image in advance and then load it into Kind:
+```bash
+docker pull quay.io/cilium/cilium:v1.xx.x
+kind load docker-image <image> --name netpol-lab
+```
+Using this to find your cilium version:
+```bash
+helm list -n kube-system
 ```
 
 ### 3. Deploy test applications and policies
