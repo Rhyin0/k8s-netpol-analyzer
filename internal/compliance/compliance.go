@@ -1,8 +1,10 @@
-package main
+package compliance
 
 import (
 	"fmt"
 	"strings"
+
+	"github.com/Rhyin0/k8s-netpol-analyzer/internal/graph"
 )
 
 type ComplianceIssue struct {
@@ -12,7 +14,7 @@ type ComplianceIssue struct {
 	Detail   string
 }
 
-func CheckCompliance(policies []NetworkPolicy, edges []Edge) []ComplianceIssue {
+func CheckCompliance(policies []graph.NetworkPolicy, edges []graph.Edge) []ComplianceIssue {
 	var issues []ComplianceIssue
 
 	// 收集所有节点
@@ -25,7 +27,7 @@ func CheckCompliance(policies []NetworkPolicy, edges []Edge) []ComplianceIssue {
 	// 收集有 policy 覆盖的节点
 	coveredNodes := make(map[string]bool)
 	for _, p := range policies {
-		name := labelStr(p.Spec.PodSelector.MatchLabels)
+		name := graph.LabelStr(p.Spec.PodSelector.MatchLabels)
 		if name != "" {
 			coveredNodes[name] = true
 		}
@@ -33,12 +35,12 @@ func CheckCompliance(policies []NetworkPolicy, edges []Edge) []ComplianceIssue {
 
 	// 检查1: 数据库节点是否有出站规则（不应该有）
 	for _, p := range policies {
-		name := labelStr(p.Spec.PodSelector.MatchLabels)
+		name := graph.LabelStr(p.Spec.PodSelector.MatchLabels)
 		if isDBNode(name) && len(p.Spec.Egress) > 0 {
 			var targets []string
 			for _, rule := range p.Spec.Egress {
 				for _, to := range rule.To {
-					targets = append(targets, labelStr(to.PodSelector.MatchLabels))
+					targets = append(targets, graph.LabelStr(to.PodSelector.MatchLabels))
 				}
 			}
 			issues = append(issues, ComplianceIssue{
@@ -52,7 +54,7 @@ func CheckCompliance(policies []NetworkPolicy, edges []Edge) []ComplianceIssue {
 
 	// 检查2: 入站规则过于宽松（没有指定 from，即允许所有 Pod 访问）
 	for _, p := range policies {
-		name := labelStr(p.Spec.PodSelector.MatchLabels)
+		name := graph.LabelStr(p.Spec.PodSelector.MatchLabels)
 		for _, rule := range p.Spec.Ingress {
 			if len(rule.From) == 0 && len(rule.Ports) > 0 {
 				var ports []string
@@ -71,7 +73,7 @@ func CheckCompliance(policies []NetworkPolicy, edges []Edge) []ComplianceIssue {
 
 	// 检查3: 出站规则过于宽松（没有指定 to）
 	for _, p := range policies {
-		name := labelStr(p.Spec.PodSelector.MatchLabels)
+		name := graph.LabelStr(p.Spec.PodSelector.MatchLabels)
 		for _, rule := range p.Spec.Egress {
 			if len(rule.To) == 0 && len(rule.Ports) > 0 {
 				issues = append(issues, ComplianceIssue{
@@ -86,8 +88,8 @@ func CheckCompliance(policies []NetworkPolicy, edges []Edge) []ComplianceIssue {
 
 	// 检查4: 高危节点缺少入站限制（感染率>50%的节点应该严格限制谁能访问它）
 	for _, p := range policies {
-		name := labelStr(p.Spec.PodSelector.MatchLabels)
-		result := SimulateSpread(edges, name)
+		name := graph.LabelStr(p.Spec.PodSelector.MatchLabels)
+		result := graph.SimulateSpread(edges, name)
 		totalNodes := len(allNodes)
 		ratio := 0.0
 		if totalNodes > 1 {
@@ -113,7 +115,7 @@ func CheckCompliance(policies []NetworkPolicy, edges []Edge) []ComplianceIssue {
 
 	// 检查5: 只有 Ingress 策略没有 Egress 策略（可能遗漏出站控制）
 	for _, p := range policies {
-		name := labelStr(p.Spec.PodSelector.MatchLabels)
+		name := graph.LabelStr(p.Spec.PodSelector.MatchLabels)
 		hasIngress := false
 		hasEgress := false
 		for _, pt := range p.Spec.PolicyTypes {

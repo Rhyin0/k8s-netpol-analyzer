@@ -1,4 +1,4 @@
-package main
+package graph
 
 import (
 	"fmt"
@@ -32,7 +32,7 @@ func AnalyzeAllNodes(edges []Edge) []NodeRisk {
 		if outSeen[e.From] == nil {
 			outSeen[e.From] = make(map[string]bool)
 		}
-		if !outSeen[e.From][e.To] {
+		if !outSeen[e.From][e.To] { // 去重
 			outSeen[e.From][e.To] = true
 			outDeg[e.From]++
 		}

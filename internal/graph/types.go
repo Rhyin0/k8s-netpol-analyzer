@@ -1,4 +1,4 @@
-package main
+package graph
 
 // NetworkPolicy YAML 结构定义
 type NetworkPolicy struct {

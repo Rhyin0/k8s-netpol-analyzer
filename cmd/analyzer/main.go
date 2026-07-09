@@ -9,6 +9,9 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/Rhyin0/k8s-netpol-analyzer/internal/graph"
+	"github.com/Rhyin0/k8s-netpol-analyzer/internal/hubble"
+	"github.com/Rhyin0/k8s-netpol-analyzer/internal/metrics"
 	"gopkg.in/yaml.v3"
 )
 
@@ -24,8 +27,8 @@ func main() {
 		fmt.Fprintf(os.Stderr, "读取策略文件失败（跳过静态分析）: %v\n", err)
 	}
 
-	var policies []NetworkPolicy
-	var staticEdges []Edge
+	var policies []graph.NetworkPolicy
+	var staticEdges []graph.Edge
 
 	if err == nil {
 		docs := strings.Split(string(data), "---")
@@ -34,7 +37,7 @@ func main() {
 			if doc == "" {
 				continue
 			}
-			var policy NetworkPolicy
+			var policy graph.NetworkPolicy
 			if err := yaml.Unmarshal([]byte(doc), &policy); err != nil {
 				fmt.Fprintf(os.Stderr, "解析YAML失败: %v\n", err)
 				continue
@@ -46,12 +49,12 @@ func main() {
 
 		// 构建静态可达性边
 		for _, p := range policies {
-			target := labelStr(p.Spec.PodSelector.MatchLabels)
+			target := graph.LabelStr(p.Spec.PodSelector.MatchLabels)
 			for _, rule := range p.Spec.Ingress {
 				for _, from := range rule.From {
-					source := labelStr(from.PodSelector.MatchLabels)
+					source := graph.LabelStr(from.PodSelector.MatchLabels)
 					for _, port := range rule.Ports {
-						staticEdges = append(staticEdges, Edge{
+						staticEdges = append(staticEdges, graph.Edge{
 							From:     source,
 							To:       target,
 							Port:     port.Port,
@@ -62,9 +65,9 @@ func main() {
 			}
 			for _, rule := range p.Spec.Egress {
 				for _, to := range rule.To {
-					dest := labelStr(to.PodSelector.MatchLabels)
+					dest := graph.LabelStr(to.PodSelector.MatchLabels)
 					for _, port := range rule.Ports {
-						staticEdges = append(staticEdges, Edge{
+						staticEdges = append(staticEdges, graph.Edge{
 							From:     target,
 							To:       dest,
 							Port:     port.Port,
@@ -74,7 +77,7 @@ func main() {
 				}
 			}
 		}
-		staticEdges = dedup(staticEdges)
+		staticEdges = graph.Dedup(staticEdges)
 
 		fmt.Println("=== 策略拓扑（静态）===")
 		for _, e := range staticEdges {
@@ -92,13 +95,14 @@ func main() {
 	}
 
 	// 创建 FlowCollector
-	collector := NewFlowCollector(hubbleAddr)
+	collector := hubble.NewFlowCollector(hubbleAddr)
 
 	// 创建 Prometheus 指标
-	metrics := NewMetrics(collector)
+	m := metrics.NewMetrics(collector)
+	// using m
 
 	// 启动 Prometheus HTTP server（goroutine）
-	go StartMetricsServer(9090)
+	go metrics.StartMetricsServer(9090)
 
 	// 启动 Hubble 流量采集（goroutine）
 	ctx, cancel := context.WithCancel(context.Background())
@@ -119,8 +123,8 @@ func main() {
 				return
 			case <-ticker.C:
 				liveEdges := collector.GetLiveEdges()
-				metrics.UpdateFromLiveEdges(liveEdges)
-				metrics.UpdateSpreadMetrics(liveEdges)
+				m.UpdateFromLiveEdges(liveEdges)
+				m.UpdateSpreadMetrics(liveEdges)
 
 				// 打印实时状态
 				fmt.Printf("\n[%s] 已采集 %d 条 Flow，发现 %d 条实时边\n",
@@ -163,7 +167,7 @@ func main() {
 }
 
 // compareTopologies 对比静态策略拓扑和实际流量拓扑
-func compareTopologies(staticEdges []Edge, liveEdges []LiveEdge) {
+func compareTopologies(staticEdges []graph.Edge, liveEdges []hubble.LiveEdge) {
 	// 构建实际流量的 key 集合
 	liveSet := make(map[string]bool)
 	for _, e := range liveEdges {
@@ -187,28 +191,4 @@ func compareTopologies(staticEdges []Edge, liveEdges []LiveEdge) {
 			fmt.Printf("    ⚠ %s\n", edge)
 		}
 	}
-}
-
-func labelStr(labels map[string]string) string {
-	if app, ok := labels["app"]; ok {
-		return app
-	}
-	parts := make([]string, 0, len(labels))
-	for k, v := range labels {
-		parts = append(parts, k+"="+v)
-	}
-	return strings.Join(parts, ",")
-}
-
-func dedup(edges []Edge) []Edge {
-	seen := make(map[string]bool)
-	var result []Edge
-	for _, e := range edges {
-		key := fmt.Sprintf("%s->%s:%s/%d", e.From, e.To, e.Protocol, e.Port)
-		if !seen[key] {
-			seen[key] = true
-			result = append(result, e)
-		}
-	}
-	return result
 }

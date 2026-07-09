@@ -1,28 +1,30 @@
-package main
+package metrics
 
 import (
 	"fmt"
 	"net/http"
 
+	"github.com/Rhyin0/k8s-netpol-analyzer/internal/graph"
+	"github.com/Rhyin0/k8s-netpol-analyzer/internal/hubble"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 )
 
 // Metrics 定义所有 Prometheus 指标
 type Metrics struct {
-	flowTotal       *prometheus.CounterVec
-	podConnectionsIn  *prometheus.GaugeVec
-	podConnectionsOut *prometheus.GaugeVec
-	spreadReachable   *prometheus.GaugeVec
-	spreadMaxDepth    *prometheus.GaugeVec
-	spreadInfection   *prometheus.GaugeVec
+	flowTotal           *prometheus.CounterVec
+	podConnectionsIn    *prometheus.GaugeVec
+	podConnectionsOut   *prometheus.GaugeVec
+	spreadReachable     *prometheus.GaugeVec
+	spreadMaxDepth      *prometheus.GaugeVec
+	spreadInfection     *prometheus.GaugeVec
 	overpermissionEdges prometheus.Gauge
 	droppedAttempts     prometheus.Gauge
 
-	collector *FlowCollector
+	collector *hubble.FlowCollector
 }
 
-func NewMetrics(collector *FlowCollector) *Metrics {
+func NewMetrics(collector *hubble.FlowCollector) *Metrics {
 	m := &Metrics{
 		flowTotal: prometheus.NewCounterVec(
 			prometheus.CounterOpts{
@@ -96,7 +98,7 @@ func NewMetrics(collector *FlowCollector) *Metrics {
 }
 
 // UpdateFromLiveEdges 根据实时流量拓扑更新 Prometheus 指标
-func (m *Metrics) UpdateFromLiveEdges(liveEdges []LiveEdge) {
+func (m *Metrics) UpdateFromLiveEdges(liveEdges []hubble.LiveEdge) {
 	// 统计每个 Pod 的入度和出度
 	inCount := make(map[string]float64)
 	outCount := make(map[string]float64)
@@ -118,11 +120,11 @@ func (m *Metrics) UpdateFromLiveEdges(liveEdges []LiveEdge) {
 }
 
 // UpdateSpreadMetrics 用 BFS 传播模拟结果更新指标
-func (m *Metrics) UpdateSpreadMetrics(liveEdges []LiveEdge) {
+func (m *Metrics) UpdateSpreadMetrics(liveEdges []hubble.LiveEdge) {
 	// 将 LiveEdge 转为 Edge 格式以复用现有的 SimulateSpread
-	var edges []Edge
+	var edges []graph.Edge
 	for _, le := range liveEdges {
-		edges = append(edges, Edge{
+		edges = append(edges, graph.Edge{
 			From:     le.From,
 			To:       le.To,
 			Port:     int(le.Port),
@@ -139,7 +141,7 @@ func (m *Metrics) UpdateSpreadMetrics(liveEdges []LiveEdge) {
 
 	// 对每个节点做传播模拟
 	for node := range allNodes {
-		result := SimulateSpread(edges, node)
+		result := graph.SimulateSpread(edges, node)
 		m.spreadReachable.WithLabelValues(node).Set(float64(len(result.Reachable)))
 		m.spreadMaxDepth.WithLabelValues(node).Set(float64(result.MaxDepth))
 

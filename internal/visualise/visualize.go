@@ -1,12 +1,14 @@
-package main
+package visualise
 
 import (
 	"fmt"
 	"os"
 	"strings"
+
+	"github.com/Rhyin0/k8s-netpol-analyzer/internal/graph"
 )
 
-func ExportDOT(edges []Edge, risks []NodeRisk, filename string) error {
+func ExportDOT(edges []graph.Edge, risks []graph.NodeRisk, filename string) error {
 	var sb strings.Builder
 	sb.WriteString("digraph K8sNetworkPolicy {\n")
 	sb.WriteString("  rankdir=LR;\n")
@@ -14,7 +16,7 @@ func ExportDOT(edges []Edge, risks []NodeRisk, filename string) error {
 	sb.WriteString("  edge [fontname=\"Arial\", fontsize=10];\n\n")
 
 	// 节点风险等级着色
-	riskMap := make(map[string]NodeRisk)
+	riskMap := make(map[string]graph.NodeRisk)
 	for _, r := range risks {
 		riskMap[r.Name] = r
 	}
@@ -108,7 +110,7 @@ func ExportDOT(edges []Edge, risks []NodeRisk, filename string) error {
 	return os.WriteFile(filename, []byte(sb.String()), 0644)
 }
 
-func nodeColor(r NodeRisk) string {
+func nodeColor(r graph.NodeRisk) string {
 	switch {
 	case r.SpreadRatio > 70:
 		return "#EF5350" // 红
