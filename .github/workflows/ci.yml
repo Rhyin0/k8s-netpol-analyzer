@@ -1,0 +1,16 @@
+# .github/workflows/ci.yml
+name: CI
+on: [push, pull_request]
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.22'
+      - run: gofmt -l . | tee /dev/stderr | wc -l | grep -q '^0$'   # 格式检查,不过就红
+      - run: go vet ./...
+      - run: go build ./...
+      - run: go test ./...
+      - run: docker build -t netpol-analyzer .
