@@ -1,0 +1,10 @@
+[33m897df84[m[33m ([m[1;36mHEAD[m[33m -> [m[1;32mmain[m[33m, [m[1;31morigin/main[m[33m, [m[1;31morigin/HEAD[m[33m)[m Merge pull request #2 from Rhyin0/claude/networkpolicy-semantics-bugs-11xn1p
+[33m062f4c2[m[33m ([m[1;31morigin/claude/networkpolicy-semantics-bugs-11xn1p[m[33m)[m docs: update README with new project structure and NetworkPolicy semantics
+[33mb143525[m Merge pull request #1 from Rhyin0/claude/networkpolicy-semantics-bugs-11xn1p
+[33m834c0d1[m fix: correct NetworkPolicy semantics for default-allow vs implicit-deny
+[33m8ad9224[m redefine Dockerfile position
+[33mcb1b1d6[m add: cli func
+[33md0eaba0[m correct fmt; add ci
+[33mcf6f673[m 重整项目结构
+[33m0dba889[m update: quick deploy in README
+[33mc7f6eca[m add: quick deploy
