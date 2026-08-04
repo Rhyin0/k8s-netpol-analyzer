@@ -1,6 +1,52 @@
 # K8s NetworkPolicy Analyzer
 
-A real-time Kubernetes network security analysis tool that combines static NetworkPolicy analysis with dynamic traffic observation. It connects to Cilium/Hubble to collect live flow data, performs BFS-based attack propagation simulation, compares policy-permitted topology against actual traffic patterns, and exposes metrics to Prometheus for Grafana visualization.
+Static and runtime analysis of Kubernetes NetworkPolicy.
+
+A misconfigured selector produces connection timeouts rather than errors,
+and a pod not selected by any policy is default-allow — neither condition
+is surfaced by the API.
+
+The tool answers three questions:
+
+- Which paths does a policy change cut off? (static, pre-apply)
+- Which pods have no policy coverage? (static)
+- Which allow rules have never matched real traffic? (runtime, via Hubble)
+
+Static analysis parses NetworkPolicy YAML into a directed reachability graph
+with correct upstream semantics. Runtime analysis streams flows from
+Cilium/Hubble and diffs observed traffic against what policy permits.
+
+## What it catches
+
+**Uncovered pods (silent default-allow)**
+
+[NO_INGRESS_POLICY] demo/redis-cache
+No policy selects this pod — reachable from all 5 pods in namespace
+Suggested: add an ingress policy or an explicit deny-all
+
+
+**Over-permissive rules (never used)**
+
+[OVERPERMISSION] demo/api-policy
+allow frontend -> api-server:9090 (0 flows observed)
+Policy permits 7 edges; live traffic uses 4
+
+
+**Blast radius**
+
+$ analyzer --entry frontend
+Reachable: 4/5 pods (infection rate 0.80)
+Max depth: 3 (frontend -> api-server -> order-service -> database)
+Articulation point: api-server (removing it isolates 3 pods)
+
+
+**Reachability with reason**
+
+$ query -src nginx-ingress -dst user-db
+BLOCKED at hop 2
+nginx-ingress -> api-gateway OK (TCP/8080)
+api-gateway -> user-db DENIED: user-db ingress isolated,
+no rule matches source labels app=gateway
 
 ## Architecture
 
@@ -150,7 +196,7 @@ kubectl port-forward -n monitoring svc/monitoring-grafana 3000:80
 ### 7. Run the analyzer
 
 ```bash
-go run .
+go run ./cmd/analyzer
 ```
 
 The program will:
