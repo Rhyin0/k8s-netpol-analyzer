@@ -43,12 +43,19 @@ A real-time Kubernetes network security analysis tool that combines static Netwo
 
 **Static analysis (Phase 1)**
 - Parse NetworkPolicy YAML files and build a directed reachability graph
+- Correct NetworkPolicy semantics: per-pod per-direction isolation tracking
+  - Pods not selected by any policy get **default-allow** (not implicit deny)
+  - Both egress (source) and ingress (destination) sides checked for every edge
+  - Asymmetric `policyTypes` inference: omitted = always Ingress; Egress only if egress rules exist
+  - Empty/omitted `ports` field correctly treated as "all ports"
+  - Empty `from`/`to` in rules means "all pods"
+- Default-allow gap detection: reports pods lacking ingress/egress policy coverage
 - BFS-based attack propagation simulation from any entry point
 - Critical path detection (longest attack chain)
 - Articulation point (cut vertex) detection
-- Policy compliance checking
-- Topology metrics (density, clustering coefficient)
-- Graphviz visualization export
+- Policy compliance checking (including NO_INGRESS_POLICY for uncovered pods)
+- Graphviz visualization export (dashed red edges for default-allow paths)
+- Reachability query CLI: check if pod A can reach pod B with path and port details
 
 **Dynamic analysis (Phase 2)**
 - Real-time flow collection from Cilium/Hubble via gRPC
@@ -61,7 +68,7 @@ A real-time Kubernetes network security analysis tool that combines static Netwo
 ## Prerequisites
 
 - Docker Desktop
-- Go 1.21+
+- Go 1.26+
 - kubectl
 - Kind
 - Cilium CLI
@@ -184,25 +191,49 @@ Open `http://localhost:3000` (admin / admin123) and view the NetPol Analyzer das
 - **Max spread depth** — bar chart of propagation depth per node
 - **Dropped attempts** — stat panel showing total rejected connections
 
+## Reachability Query
+
+Check if a source pod can reach a destination pod:
+
+```bash
+go run ./cmd/query -src nginx-ingress -dst user-db -f testdata/policies.yaml
+```
+
+Output shows the full path with port details at each hop, or the reason traffic is blocked.
+
 ## Project Structure
 
 ```
 k8s-netpol-analyzer/
-├── main.go              # Entry point: static analysis + dynamic service
-├── hubble.go            # Hubble gRPC client, flow collection
-├── metrics.go           # Prometheus metrics definition and HTTP server
-├── types.go             # Shared type definitions (Edge, NetworkPolicy)
-├── analyzer.go          # BFS propagation simulation
-├── critical.go          # Articulation point detection
-├── compliance.go        # Policy compliance checking
-├── topology.go          # Topology metrics (density, clustering)
-├── visualize.go         # Graphviz DOT export
-├── testdata/            # Sample NetworkPolicy YAML files
-├── kind-config.yaml     # Kind cluster configuration
-├── test-apps.yaml       # Test pod definitions
-├── test-services.yaml   # Test service definitions
-├── test-netpol.yaml     # NetworkPolicy rules for demo namespace
-└── netpol-scrape.yaml   # Prometheus ServiceMonitor configuration
+├── cmd/
+│   ├── analyzer/main.go     # Entry point: static analysis + dynamic service
+│   └── query/main.go        # CLI reachability query tool
+├── internal/
+│   ├── graph/
+│   │   ├── types.go         # Core types: Edge, PortRange, PodIsolation
+│   │   ├── build.go         # Edge building with both-sides validation
+│   │   ├── build_test.go    # 13 unit tests for edge semantics
+│   │   ├── util.go          # LabelStr, Dedup with port merging
+│   │   ├── analyzer.go      # BFS propagation simulation
+│   │   ├── query.go         # Reachability query with path tracing
+│   │   └── critical.go      # Articulation point detection, risk report
+│   ├── policy/
+│   │   ├── parser.go        # YAML parsing, returns edges + isolation map
+│   │   └── parser_test.go   # Integration test against policies.yaml
+│   ├── compliance/
+│   │   └── compliance.go    # Policy compliance checking (6 rules)
+│   ├── hubble/
+│   │   └── collector.go     # Hubble gRPC client, flow collection
+│   ├── metrics/
+│   │   └── metrics.go       # Prometheus metrics + HTTP server
+│   └── visualise/
+│       └── visualize.go     # Graphviz DOT export
+├── testdata/                 # Sample NetworkPolicy YAML files (22 policies)
+├── kind-config.yaml          # Kind cluster configuration
+├── test-apps.yaml            # Test pod definitions
+├── test-services.yaml        # Test service definitions
+├── test-netpol.yaml          # NetworkPolicy rules for demo namespace
+└── netpol-scrape.yaml        # Prometheus ServiceMonitor configuration
 ```
 
 ## NetworkPolicy Test Topology
@@ -218,6 +249,25 @@ frontend ──▶ api-server ──▶ order-service ──▶ database
 - order-service can reach database
 - database and redis-cache have no outbound access
 - All pods are allowed DNS (UDP 53) egress
+
+## NetworkPolicy Semantics
+
+The analyzer implements correct Kubernetes NetworkPolicy semantics:
+
+| Scenario | Ingress | Egress |
+|----------|---------|--------|
+| No policy selects pod | Default allow (all traffic) | Default allow (all traffic) |
+| Policy selects pod with `policyTypes: [Ingress]` | Isolated (only matching rules) | Default allow |
+| Policy selects pod with `policyTypes: [Egress]` | Default allow | Isolated (only matching rules) |
+| Policy with no rules (deny-all) | All denied | All denied |
+| Rule with empty `from`/`to` | All pods match | All pods match |
+| Rule with empty `ports` | All ports allowed | All ports allowed |
+
+An edge A→B exists only when **both** sides permit the connection:
+- A's egress side allows traffic to B (default-allow or explicit rule)
+- **AND** B's ingress side allows traffic from A (default-allow or explicit rule)
+
+When both sides have explicit port constraints, the effective ports are the **intersection**.
 
 ## Future Work
 
