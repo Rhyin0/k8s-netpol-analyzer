@@ -1,7 +1,6 @@
 package graph
 
 import (
-	"fmt"
 	"strings"
 )
 
@@ -16,14 +15,46 @@ func LabelStr(labels map[string]string) string {
 	return strings.Join(parts, ",")
 }
 
+// Dedup merges edges with the same (From, To), combining their port ranges.
 func Dedup(edges []Edge) []Edge {
-	seen := make(map[string]bool)
-	var result []Edge
+	type edgeKey struct{ From, To string }
+	merged := make(map[edgeKey]*Edge)
+	var order []edgeKey
+
 	for _, e := range edges {
-		key := fmt.Sprintf("%s->%s:%s/%d", e.From, e.To, e.Protocol, e.Port)
-		if !seen[key] {
-			seen[key] = true
-			result = append(result, e)
+		key := edgeKey{e.From, e.To}
+		if existing, ok := merged[key]; ok {
+			existing.Ports = mergePortRanges(existing.Ports, e.Ports)
+		} else {
+			eCopy := e
+			merged[key] = &eCopy
+			order = append(order, key)
+		}
+	}
+
+	result := make([]Edge, len(order))
+	for i, key := range order {
+		result[i] = *merged[key]
+	}
+	return result
+}
+
+func mergePortRanges(a, b []PortRange) []PortRange {
+	if hasAllPorts(a) || hasAllPorts(b) {
+		return []PortRange{AllPorts}
+	}
+	seen := make(map[PortRange]bool)
+	var result []PortRange
+	for _, p := range a {
+		if !seen[p] {
+			seen[p] = true
+			result = append(result, p)
+		}
+	}
+	for _, p := range b {
+		if !seen[p] {
+			seen[p] = true
+			result = append(result, p)
 		}
 	}
 	return result

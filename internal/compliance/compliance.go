@@ -14,26 +14,16 @@ type ComplianceIssue struct {
 	Detail   string
 }
 
-func CheckCompliance(policies []graph.NetworkPolicy, edges []graph.Edge) []ComplianceIssue {
+func CheckCompliance(policies []graph.NetworkPolicy, edges []graph.Edge, isolation map[string]*graph.PodIsolation) []ComplianceIssue {
 	var issues []ComplianceIssue
 
-	// 收集所有节点
 	allNodes := make(map[string]bool)
 	for _, e := range edges {
 		allNodes[e.From] = true
 		allNodes[e.To] = true
 	}
 
-	// 收集有 policy 覆盖的节点
-	coveredNodes := make(map[string]bool)
-	for _, p := range policies {
-		name := graph.LabelStr(p.Spec.PodSelector.MatchLabels)
-		if name != "" {
-			coveredNodes[name] = true
-		}
-	}
-
-	// 检查1: 数据库节点是否有出站规则（不应该有）
+	// 检查1: 数据库节点是否有出站规则
 	for _, p := range policies {
 		name := graph.LabelStr(p.Spec.PodSelector.MatchLabels)
 		if isDBNode(name) && len(p.Spec.Egress) > 0 {
@@ -52,7 +42,7 @@ func CheckCompliance(policies []graph.NetworkPolicy, edges []graph.Edge) []Compl
 		}
 	}
 
-	// 检查2: 入站规则过于宽松（没有指定 from，即允许所有 Pod 访问）
+	// 检查2: 入站规则过于宽松（没有指定 from）
 	for _, p := range policies {
 		name := graph.LabelStr(p.Spec.PodSelector.MatchLabels)
 		for _, rule := range p.Spec.Ingress {
@@ -86,7 +76,7 @@ func CheckCompliance(policies []graph.NetworkPolicy, edges []graph.Edge) []Compl
 		}
 	}
 
-	// 检查4: 高危节点缺少入站限制（感染率>50%的节点应该严格限制谁能访问它）
+	// 检查4: 高危节点缺少入站限制
 	for _, p := range policies {
 		name := graph.LabelStr(p.Spec.PodSelector.MatchLabels)
 		result := graph.SimulateSpread(edges, name)
@@ -113,7 +103,7 @@ func CheckCompliance(policies []graph.NetworkPolicy, edges []graph.Edge) []Compl
 		}
 	}
 
-	// 检查5: 只有 Ingress 策略没有 Egress 策略（可能遗漏出站控制）
+	// 检查5: 只有 Ingress 策略没有 Egress 策略
 	for _, p := range policies {
 		name := graph.LabelStr(p.Spec.PodSelector.MatchLabels)
 		hasIngress := false
@@ -133,6 +123,21 @@ func CheckCompliance(policies []graph.NetworkPolicy, edges []graph.Edge) []Compl
 				Rule:     "MISSING_EGRESS_POLICY",
 				Detail:   "只定义了入站策略，缺少出站策略，该节点出站流量不受限制",
 			})
+		}
+	}
+
+	// 检查6: Default-Allow 缺口 — 无 Ingress 策略覆盖的 Pod
+	if isolation != nil {
+		gaps := graph.FindDefaultAllowGaps(isolation)
+		for _, g := range gaps {
+			if g.Direction == "Ingress" {
+				issues = append(issues, ComplianceIssue{
+					Severity: "HIGH",
+					Node:     g.Pod,
+					Rule:     "NO_INGRESS_POLICY",
+					Detail:   "该 Pod 没有任何 Ingress 策略覆盖，任何 Pod 都可以访问它（default-allow）",
+				})
+			}
 		}
 	}
 
@@ -165,7 +170,7 @@ func PrintComplianceReport(issues []ComplianceIssue) {
 	fmt.Println("\n=== 策略合规检查报告 ===")
 
 	if len(issues) == 0 {
-		fmt.Println("  ✅ 未发现合规问题")
+		fmt.Println("  未发现合规问题")
 		return
 	}
 
@@ -179,13 +184,13 @@ func PrintComplianceReport(issues []ComplianceIssue) {
 		var icon string
 		switch issue.Severity {
 		case "HIGH":
-			icon = "🔴"
+			icon = "!"
 			highCount++
 		case "MEDIUM":
-			icon = "🟡"
+			icon = "~"
 			medCount++
 		case "LOW":
-			icon = "🔵"
+			icon = "."
 			lowCount++
 		}
 		fmt.Printf("%s [%s] %s\n", icon, issue.Severity, issue.Node)
@@ -193,5 +198,5 @@ func PrintComplianceReport(issues []ComplianceIssue) {
 		fmt.Printf("   详情: %s\n\n", issue.Detail)
 	}
 
-	fmt.Printf("汇总: 🔴 HIGH=%d  🟡 MEDIUM=%d  🔵 LOW=%d\n", highCount, medCount, lowCount)
+	fmt.Printf("汇总: HIGH=%d  MEDIUM=%d  LOW=%d\n", highCount, medCount, lowCount)
 }

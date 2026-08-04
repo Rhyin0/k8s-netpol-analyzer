@@ -15,13 +15,11 @@ func ExportDOT(edges []graph.Edge, risks []graph.NodeRisk, filename string) erro
 	sb.WriteString("  node [shape=box, style=filled, fontname=\"Arial\"];\n")
 	sb.WriteString("  edge [fontname=\"Arial\", fontsize=10];\n\n")
 
-	// 节点风险等级着色
 	riskMap := make(map[string]graph.NodeRisk)
 	for _, r := range risks {
 		riskMap[r.Name] = r
 	}
 
-	// 节点分类
 	categories := map[string][]string{
 		"gateway":  {},
 		"service":  {},
@@ -36,7 +34,6 @@ func ExportDOT(edges []graph.Edge, risks []graph.NodeRisk, filename string) erro
 		allNodes[e.From] = true
 		allNodes[e.To] = true
 	}
-	// 加上隔离节点
 	for _, r := range risks {
 		allNodes[r.Name] = true
 	}
@@ -58,7 +55,6 @@ func ExportDOT(edges []graph.Edge, risks []graph.NodeRisk, filename string) erro
 		}
 	}
 
-	// 子图分组
 	clusterNames := map[string]string{
 		"gateway":  "入口层",
 		"service":  "业务服务层",
@@ -93,16 +89,20 @@ func ExportDOT(edges []graph.Edge, risks []graph.NodeRisk, filename string) erro
 		i++
 	}
 
-	// 边
 	seen := make(map[string]bool)
 	for _, e := range edges {
-		key := fmt.Sprintf("%s->%s:%d", e.From, e.To, e.Port)
+		key := fmt.Sprintf("%s->%s", e.From, e.To)
 		if seen[key] {
 			continue
 		}
 		seen[key] = true
-		sb.WriteString(fmt.Sprintf("  \"%s\" -> \"%s\" [label=\"%d/%s\"];\n",
-			e.From, e.To, e.Port, e.Protocol))
+		label := graph.PortsLabel(e.Ports)
+		style := ""
+		if e.EgressDefault && e.IngressDefault {
+			style = ", style=dashed, color=red"
+		}
+		sb.WriteString(fmt.Sprintf("  \"%s\" -> \"%s\" [label=\"%s\"%s];\n",
+			e.From, e.To, label, style))
 	}
 
 	sb.WriteString("}\n")
@@ -113,14 +113,14 @@ func ExportDOT(edges []graph.Edge, risks []graph.NodeRisk, filename string) erro
 func nodeColor(r graph.NodeRisk) string {
 	switch {
 	case r.SpreadRatio > 70:
-		return "#EF5350" // 红
+		return "#EF5350"
 	case r.SpreadRatio > 40:
-		return "#FFA726" // 橙
+		return "#FFA726"
 	case r.SpreadRatio > 20:
-		return "#FFEE58" // 黄
+		return "#FFEE58"
 	case r.InDegree == 0 && r.OutDegree == 0:
-		return "#BDBDBD" // 灰：隔离
+		return "#BDBDBD"
 	default:
-		return "#66BB6A" // 绿
+		return "#66BB6A"
 	}
 }

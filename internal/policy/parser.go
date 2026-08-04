@@ -8,11 +8,11 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
-// LoadFromFile 读取YAML文件，返回策略列表和边
-func LoadFromFile(path string) ([]graph.NetworkPolicy, []graph.Edge, error) {
+// LoadFromFile reads a YAML file and returns policies, edges, and isolation state.
+func LoadFromFile(path string) ([]graph.NetworkPolicy, []graph.Edge, map[string]*graph.PodIsolation, error) {
 	data, err := os.ReadFile(path)
 	if err != nil {
-		return nil, nil, err
+		return nil, nil, nil, err
 	}
 
 	var policies []graph.NetworkPolicy
@@ -29,38 +29,7 @@ func LoadFromFile(path string) ([]graph.NetworkPolicy, []graph.Edge, error) {
 		policies = append(policies, p)
 	}
 
-	// 构建边（从 cmd/analyzer/main.go 搬过来的逻辑）
-	var edges []graph.Edge
-	for _, p := range policies {
-		target := graph.LabelStr(p.Spec.PodSelector.MatchLabels)
-		for _, rule := range p.Spec.Ingress {
-			for _, from := range rule.From {
-				source := graph.LabelStr(from.PodSelector.MatchLabels)
-				for _, port := range rule.Ports {
-					edges = append(edges, graph.Edge{
-						From:     source,
-						To:       target,
-						Port:     port.Port,
-						Protocol: port.Protocol,
-					})
-				}
-			}
-		}
-		for _, rule := range p.Spec.Egress {
-			for _, to := range rule.To {
-				dest := graph.LabelStr(to.PodSelector.MatchLabels)
-				for _, port := range rule.Ports {
-					edges = append(edges, graph.Edge{
-						From:     target,
-						To:       dest,
-						Port:     port.Port,
-						Protocol: port.Protocol,
-					})
-				}
-			}
-		}
-	}
-	edges = graph.Dedup(edges)
+	edges, isolation := graph.BuildEdges(policies)
 
-	return policies, edges, nil
+	return policies, edges, isolation, nil
 }
