@@ -159,16 +159,16 @@ func PrintRiskReport(risks []NodeRisk) {
 	fmt.Println("\n=== 节点风险评估报告 ===")
 	fmt.Printf("总节点数: %d\n\n", len(risks))
 
-	fmt.Printf("%-24s %6s %6s %8s %8s %6s %s\n",
+	fmt.Printf("%-28s %6s %6s %8s %8s %6s %s\n",
 		"节点", "入度", "出度", "感染数", "感染率", "深度", "割点")
-	fmt.Println(repeatStr("-", 75))
+	fmt.Println(repeatStr("-", 79))
 
 	for _, r := range risks {
 		critical := " "
 		if r.IsCriticalPoint {
 			critical = "YES"
 		}
-		fmt.Printf("%-24s %6d %6d %8d %7.1f%% %6d %s\n",
+		fmt.Printf("%-28s %6d %6d %8d %7.1f%% %6d %s\n",
 			r.Name, r.InDegree, r.OutDegree,
 			r.SpreadCount, r.SpreadRatio, r.MaxSpreadDepth, critical)
 	}

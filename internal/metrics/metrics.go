@@ -121,14 +121,12 @@ func (m *Metrics) UpdateFromLiveEdges(liveEdges []hubble.LiveEdge) {
 
 // UpdateSpreadMetrics 用 BFS 传播模拟结果更新指标
 func (m *Metrics) UpdateSpreadMetrics(liveEdges []hubble.LiveEdge) {
-	// 将 LiveEdge 转为 Edge 格式以复用现有的 SimulateSpread
 	var edges []graph.Edge
 	for _, le := range liveEdges {
 		edges = append(edges, graph.Edge{
-			From:     le.From,
-			To:       le.To,
-			Port:     int(le.Port),
-			Protocol: le.Protocol,
+			From:  le.From,
+			To:    le.To,
+			Ports: []graph.PortRange{{Port: int(le.Port), Protocol: le.Protocol}},
 		})
 	}
 
