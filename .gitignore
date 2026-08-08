@@ -1,2 +1,4 @@
 /.venv
 *.exe
+network-topology.dot
+topology.png
