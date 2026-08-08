@@ -30,6 +30,7 @@ type FlowCollector struct {
 	flows      []FlowRecord
 	edges      map[string]*LiveEdge // 实时流量拓扑
 	hubbleAddr string
+	namespace  string // 只关注这个 namespace 的流量
 }
 
 // LiveEdge 表示实际观测到的一条流量边
@@ -43,9 +44,10 @@ type LiveEdge struct {
 	Dropped  int64 // 被拒绝的次数
 }
 
-func NewFlowCollector(hubbleAddr string) *FlowCollector {
+func NewFlowCollector(hubbleAddr string, namespace string) *FlowCollector {
 	return &FlowCollector{
 		hubbleAddr: hubbleAddr,
+		namespace:  namespace,
 		edges:      make(map[string]*LiveEdge),
 	}
 }
@@ -114,7 +116,7 @@ func (fc *FlowCollector) observe(ctx context.Context, client observerpb.Observer
 			continue
 		}
 
-		// 只关注 demo namespace 的业务 Pod
+		// 只关注指定 namespace 的业务 Pod，或未设置时不过滤
 		srcNs := src.GetNamespace()
 		dstNs := dst.GetNamespace()
 		srcPod := src.GetPodName()
@@ -122,7 +124,8 @@ func (fc *FlowCollector) observe(ctx context.Context, client observerpb.Observer
 		if srcPod == "" || dstPod == "" {
 			continue
 		}
-		if srcNs != "demo" || dstNs != "demo" {
+
+		if fc.namespace != "" && (srcNs != fc.namespace || dstNs != fc.namespace) {
 			continue
 		}
 
