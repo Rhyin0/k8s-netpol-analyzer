@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	observerpb "github.com/cilium/cilium/api/v1/observer"
@@ -27,10 +28,13 @@ type FlowRecord struct {
 // FlowCollector 持续从 Hubble 采集流量数据
 type FlowCollector struct {
 	mu         sync.RWMutex
-	flows      []FlowRecord
+	flows      []FlowRecord         // 已采集的 Flow 记录
+	flowPos    int                  // 下一个写入 flows 的位置
+	flowFull   bool                 // flows 是否已满
 	edges      map[string]*LiveEdge // 实时流量拓扑
 	hubbleAddr string
-	namespace  string // 只关注这个 namespace 的流量
+	namespace  string       // 只关注这个 namespace 的流量
+	totalCount atomic.Int64 // 已采集的 Flow 总数
 }
 
 // LiveEdge 表示实际观测到的一条流量边
@@ -44,11 +48,19 @@ type LiveEdge struct {
 	Dropped  int64 // 被拒绝的次数
 }
 
-func NewFlowCollector(hubbleAddr string, namespace string) *FlowCollector {
+func NewFlowCollector(hubbleAddr string, namespace string, bufSize int) *FlowCollector {
+	if bufSize <= 0 {
+		fmt.Println("警告: 缓冲区大小必须大于 0，使用默认值 4095")
+		bufSize = 4095 // 默认缓冲区大小
+	}
+
 	return &FlowCollector{
 		hubbleAddr: hubbleAddr,
 		namespace:  namespace,
 		edges:      make(map[string]*LiveEdge),
+		flows:      make([]FlowRecord, bufSize),
+		flowPos:    0,
+		flowFull:   false,
 	}
 }
 
@@ -109,6 +121,8 @@ func (fc *FlowCollector) observe(ctx context.Context, client observerpb.Observer
 			continue
 		}
 
+		fc.totalCount.Add(1)
+
 		// 提取源和目标信息
 		src := flow.GetSource()
 		dst := flow.GetDestination()
@@ -161,7 +175,14 @@ func (fc *FlowCollector) observe(ctx context.Context, client observerpb.Observer
 		}
 
 		fc.mu.Lock()
-		fc.flows = append(fc.flows, record)
+
+		fc.flows[fc.flowPos] = record
+		fc.flowPos = (fc.flowPos + 1) % len(fc.flows)
+
+		if fc.flowPos == 0 {
+			fc.flowFull = true
+		}
+
 		fc.updateEdge(record)
 		fc.mu.Unlock()
 	}
@@ -204,7 +225,31 @@ func (fc *FlowCollector) GetLiveEdges() []LiveEdge {
 
 // GetFlowCount 返回已采集的 Flow 总数
 func (fc *FlowCollector) GetFlowCount() int {
+	return int(fc.totalCount.Load())
+}
+
+// GetRecentFlows 返回最近 N 条 Flow 记录
+func (fc *FlowCollector) GetRecentFlows(n int) []FlowRecord {
 	fc.mu.RLock()
 	defer fc.mu.RUnlock()
-	return len(fc.flows)
+
+	avail := fc.flowPos
+	if fc.flowFull {
+		avail = len(fc.flows)
+	}
+
+	if n > avail {
+		n = avail
+	}
+	if n <= 0 {
+		return nil
+	}
+
+	result := make([]FlowRecord, 0, n)
+	for i := 0; i < n; i++ {
+		idx := (fc.flowPos - 1 - i + len(fc.flows)) % len(fc.flows)
+		result = append(result, fc.flows[idx])
+	}
+
+	return result
 }

@@ -62,7 +62,7 @@ func main() {
 
 	namespace := os.Getenv("WATCH_NAMESPACE")
 
-	collector := hubble.NewFlowCollector(hubbleAddr, namespace)
+	collector := hubble.NewFlowCollector(hubbleAddr, namespace, 4095)
 
 	m := metrics.NewMetrics(collector)
 

@@ -317,8 +317,10 @@ When both sides have explicit port constraints, the effective ports are the **in
 
 ## Future Work
 
-- Containerize the Go program and deploy as a pod in the cluster
-- Add anomaly detection based on traffic pattern changes
-- Implement ML-based policy optimization suggestions
-- Export Grafana dashboard as JSON for version control
-- Add support for multiple namespaces
+[] Containerize the Go program and deploy as a pod in the cluster
+[] Add anomaly detection based on traffic pattern changes
+[] Implement ML-based policy optimization suggestions
+[x] Export Grafana dashboard as JSON for version control
+[] Add support for multiple namespaces
+
+[] Add hubble_test.go
