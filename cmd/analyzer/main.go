@@ -13,6 +13,7 @@ import (
 	"github.com/Rhyin0/k8s-netpol-analyzer/internal/hubble"
 	"github.com/Rhyin0/k8s-netpol-analyzer/internal/metrics"
 	"github.com/Rhyin0/k8s-netpol-analyzer/internal/policy"
+	"github.com/Rhyin0/k8s-netpol-analyzer/internal/visualise"
 )
 
 func main() {
@@ -50,6 +51,15 @@ func main() {
 		if isolation != nil {
 			gaps := graph.FindDefaultAllowGaps(isolation)
 			graph.PrintDefaultAllowReport(gaps)
+		}
+
+		// Graph output
+		risks := graph.AnalyzeAllNodes(staticEdges)
+		dotFile := "network-topology.dot"
+		if err := visualise.ExportDOT(staticEdges, risks, dotFile); err != nil {
+			fmt.Fprintf(os.Stderr, "导出 DOT 文件失败: %v\n", err)
+		} else {
+			fmt.Printf("已导出静态拓扑 DOT 文件: %s\n", dotFile)
 		}
 	}
 
