@@ -61,6 +61,14 @@ func main() {
 		} else {
 			fmt.Printf("已导出静态拓扑 DOT 文件: %s\n", dotFile)
 		}
+
+		// JSON output
+		jsonFile := "network-topology.json"
+		if err := visualise.ExportJSON(staticEdges, risks, isolation, jsonFile); err != nil {
+			fmt.Fprintf(os.Stderr, "导出 JSON 文件失败: %v\n", err)
+		} else {
+			fmt.Printf("已导出静态拓扑 JSON 文件: %s\n", jsonFile)
+		}
 	}
 
 	// ========== Phase 2: 动态流量采集 ==========

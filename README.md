@@ -325,3 +325,4 @@ When both sides have explicit port constraints, the effective ports are the **in
 
 [] Add hubble_test.go
 [] Change language(in graph) to English
+[] Update generated graph's struct
