@@ -5,15 +5,15 @@ import (
 	"sort"
 )
 
-// 节点风险评估结果
+// NodeRisk represents the risk assessment result for a node
 type NodeRisk struct {
 	Name            string
-	OutDegree       int     // 出度：能访问多少节点
-	InDegree        int     // 入度：被多少节点访问
-	SpreadCount     int     // 被入侵后能感染多少节点
-	SpreadRatio     float64 // 感染率
-	MaxSpreadDepth  int     // 最大传播深度
-	IsCriticalPoint bool    // 是否为割点（删除后图断开）
+	OutDegree       int     // can directly reach how many nodes
+	InDegree        int     // can be reached directly by how many nodes
+	SpreadCount     int     // can infect how many nodes after being compromised
+	SpreadRatio     float64 // infection rate
+	MaxSpreadDepth  int     // maximum propagation depth
+	IsCriticalPoint bool    // whether it is a critical point (removing it disconnects the graph)
 }
 
 // 分析所有节点的风险
@@ -53,7 +53,7 @@ func AnalyzeAllNodes(edges []Edge) []NodeRisk {
 		result := SimulateSpread(edges, node)
 		ratio := 0.0
 		if totalNodes > 1 {
-			ratio = float64(len(result.Reachable)) / float64(totalNodes-1) * 100
+			ratio = float64(len(result.Reachable)) / float64(totalNodes-1)
 		}
 
 		risks = append(risks, NodeRisk{

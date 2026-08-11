@@ -112,11 +112,11 @@ func ExportDOT(edges []graph.Edge, risks []graph.NodeRisk, filename string) erro
 
 func nodeColor(r graph.NodeRisk) string {
 	switch {
-	case r.SpreadRatio > 70:
+	case r.SpreadRatio > 0.7:
 		return "#EF5350"
-	case r.SpreadRatio > 40:
+	case r.SpreadRatio > 0.4:
 		return "#FFA726"
-	case r.SpreadRatio > 20:
+	case r.SpreadRatio > 0.2:
 		return "#FFEE58"
 	case r.InDegree == 0 && r.OutDegree == 0:
 		return "#BDBDBD"
