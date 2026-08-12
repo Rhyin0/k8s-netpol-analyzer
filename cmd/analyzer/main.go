@@ -63,7 +63,7 @@ func main() {
 		}
 
 		// JSON output
-		jsonFile := "network-topology.json"
+		jsonFile := "web/network-topology.json"
 		if err := visualise.ExportJSON(staticEdges, risks, isolation, jsonFile); err != nil {
 			fmt.Fprintf(os.Stderr, "导出 JSON 文件失败: %v\n", err)
 		} else {

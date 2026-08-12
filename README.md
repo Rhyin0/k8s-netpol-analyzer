@@ -315,6 +315,17 @@ An edge A→B exists only when **both** sides permit the connection:
 
 When both sides have explicit port constraints, the effective ports are the **intersection**.
 
+## 拓扑可视化
+
+![topology](docs/topology.png)
+
+Node borders distinguish between three isolation states: solid blue (explicitly authorized), dashed orange (inbound allowed by default, without policy control), and gray (fully isolated). A dashed border indicates that the connection exists due to a default allow rule rather than being explicitly approved by a policy.
+
+
+![spread](docs/spread.png)
+
+Click any node to view lateral movement paths; color intensity corresponds to the BFS propagation level.
+
 ## Future Work
 
 [] Containerize the Go program and deploy as a pod in the cluster

@@ -2,4 +2,4 @@
 *.exe
 network-topology.dot
 topology.png
-network-topology.json
+web/network-topology.json
