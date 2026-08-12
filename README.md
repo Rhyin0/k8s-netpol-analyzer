@@ -315,7 +315,7 @@ An edge A→B exists only when **both** sides permit the connection:
 
 When both sides have explicit port constraints, the effective ports are the **intersection**.
 
-## 拓扑可视化
+## Topology Visualization
 
 ![topology](docs/topology.png)
 
