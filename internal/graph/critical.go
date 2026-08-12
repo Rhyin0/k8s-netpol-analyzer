@@ -17,7 +17,7 @@ type NodeRisk struct {
 }
 
 // 分析所有节点的风险
-func AnalyzeAllNodes(edges []Edge) []NodeRisk {
+func AnalyzeAllNodes(pods []string, edges []Edge) []NodeRisk {
 	// 收集所有节点
 	allNodes := make(map[string]bool)
 	outDeg := make(map[string]int)
@@ -27,8 +27,6 @@ func AnalyzeAllNodes(edges []Edge) []NodeRisk {
 	inSeen := make(map[string]map[string]bool)
 
 	for _, e := range edges {
-		allNodes[e.From] = true
-		allNodes[e.To] = true
 		if outSeen[e.From] == nil {
 			outSeen[e.From] = make(map[string]bool)
 		}
@@ -45,25 +43,26 @@ func AnalyzeAllNodes(edges []Edge) []NodeRisk {
 		}
 	}
 
-	totalNodes := len(allNodes)
+	totalNodes := len(pods)
 	var risks []NodeRisk
 
-	for node := range allNodes {
+	for _, p := range pods {
 		// 传播模拟
-		result := SimulateSpread(edges, node)
+		allNodes[p] = true
+		result := SimulateSpread(edges, p)
 		ratio := 0.0
 		if totalNodes > 1 {
 			ratio = float64(len(result.Reachable)) / float64(totalNodes-1)
 		}
 
 		risks = append(risks, NodeRisk{
-			Name:            node,
-			OutDegree:       outDeg[node],
-			InDegree:        inDeg[node],
+			Name:            p,
+			OutDegree:       outDeg[p],
+			InDegree:        inDeg[p],
 			SpreadCount:     len(result.Reachable),
 			SpreadRatio:     ratio,
 			MaxSpreadDepth:  result.MaxDepth,
-			IsCriticalPoint: isCriticalPoint(edges, allNodes, node),
+			IsCriticalPoint: isCriticalPoint(edges, allNodes, p),
 		})
 	}
 

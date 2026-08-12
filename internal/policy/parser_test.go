@@ -7,7 +7,7 @@ import (
 )
 
 func TestLoadFromFile(t *testing.T) {
-	policies, edges, isolation, err := LoadFromFile("../../testdata/policies.yaml")
+	policies, edges, isolation, allPods, err := LoadFromFile("../../testdata/policies.yaml")
 	if err != nil {
 		t.Fatalf("LoadFromFile failed: %v", err)
 	}
@@ -18,6 +18,10 @@ func TestLoadFromFile(t *testing.T) {
 
 	if len(edges) == 0 {
 		t.Fatal("expected edges, got 0")
+	}
+
+	if len(allPods) == 0 {
+		t.Fatal("expected pods, got 0")
 	}
 
 	if isolation == nil {

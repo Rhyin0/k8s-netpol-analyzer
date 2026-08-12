@@ -8,11 +8,11 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
-// LoadFromFile reads a YAML file and returns policies, edges, and isolation state.
-func LoadFromFile(path string) ([]graph.NetworkPolicy, []graph.Edge, map[string]*graph.PodIsolation, error) {
+// LoadFromFile reads a YAML file and returns policies, edges, isolation, and pods state.
+func LoadFromFile(path string) ([]graph.NetworkPolicy, []graph.Edge, map[string]*graph.PodIsolation, []string, error) {
 	data, err := os.ReadFile(path)
 	if err != nil {
-		return nil, nil, nil, err
+		return nil, nil, nil, nil, err
 	}
 
 	var policies []graph.NetworkPolicy
@@ -29,7 +29,8 @@ func LoadFromFile(path string) ([]graph.NetworkPolicy, []graph.Edge, map[string]
 		policies = append(policies, p)
 	}
 
+	allPods := graph.CollectAllPods(policies)
 	edges, isolation := graph.BuildEdges(policies)
 
-	return policies, edges, isolation, nil
+	return policies, edges, isolation, allPods, nil
 }

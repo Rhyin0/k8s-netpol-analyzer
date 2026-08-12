@@ -22,7 +22,7 @@ func main() {
 		os.Exit(1)
 	}
 
-	_, edges, _, err := policy.LoadFromFile(*file)
+	_, edges, _, _, err := policy.LoadFromFile(*file)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "加载策略失败: %v\n", err)
 		os.Exit(1)

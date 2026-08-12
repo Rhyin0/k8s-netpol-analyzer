@@ -22,7 +22,7 @@ func main() {
 
 	// ========== Phase 1: 静态分析 ==========
 
-	policies, staticEdges, isolation, err := policy.LoadFromFile("testdata/policies.yaml")
+	policies, staticEdges, isolation, allPods, err := policy.LoadFromFile("testdata/policies.yaml")
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "读取策略文件失败（跳过静态分析）: %v\n", err)
 	}
@@ -54,7 +54,7 @@ func main() {
 		}
 
 		// Graph output
-		risks := graph.AnalyzeAllNodes(staticEdges)
+		risks := graph.AnalyzeAllNodes(allPods, staticEdges)
 		dotFile := "network-topology.dot"
 		if err := visualise.ExportDOT(staticEdges, risks, dotFile); err != nil {
 			fmt.Fprintf(os.Stderr, "导出 DOT 文件失败: %v\n", err)
