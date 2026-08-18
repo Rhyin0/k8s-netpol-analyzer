@@ -3,12 +3,14 @@ package main
 import (
 	"context"
 	"fmt"
+	"net/http"
 	"os"
 	"os/signal"
 	"strings"
 	"syscall"
 	"time"
 
+	"github.com/Rhyin0/k8s-netpol-analyzer/internal/flowstat"
 	"github.com/Rhyin0/k8s-netpol-analyzer/internal/graph"
 	"github.com/Rhyin0/k8s-netpol-analyzer/internal/hubble"
 	"github.com/Rhyin0/k8s-netpol-analyzer/internal/metrics"
@@ -26,6 +28,7 @@ func main() {
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "读取策略文件失败（跳过静态分析）: %v\n", err)
 	}
+	var risks []graph.NodeRisk
 
 	if err == nil {
 		fmt.Printf("解析到 %d 条 NetworkPolicy\n\n", len(policies))
@@ -54,7 +57,7 @@ func main() {
 		}
 
 		// Graph output
-		risks := graph.AnalyzeAllNodes(allPods, staticEdges)
+		risks = graph.AnalyzeAllNodes(allPods, staticEdges)
 		dotFile := "network-topology.dot"
 		if err := visualise.ExportDOT(staticEdges, risks, dotFile); err != nil {
 			fmt.Fprintf(os.Stderr, "导出 DOT 文件失败: %v\n", err)
@@ -82,7 +85,40 @@ func main() {
 
 	collector := hubble.NewFlowCollector(hubbleAddr, namespace, 4095)
 
+	// 累计观测表：ring buffer 会淘汰旧记录，差集分析不能用它判断
+	// 「这条边有没有流量」，否则低频边会被高频流量冲刷成「无流量」。
+	tracker := flowstat.NewTracker()
+	var g *graph.Graph
+	if err == nil {
+		g = &graph.Graph{Policies: policies, Edges: staticEdges, Isolation: isolation}
+		collector.AttachTracker(g, tracker)
+	}
+
 	m := metrics.NewMetrics(collector)
+
+	minWindow := 30 * time.Minute
+	if v := os.Getenv("DIFF_MIN_WINDOW"); v != "" {
+		if d, perr := time.ParseDuration(v); perr == nil {
+			minWindow = d
+		}
+	}
+	http.HandleFunc("/api/diff", func(w http.ResponseWriter, r *http.Request) {
+		if g == nil {
+			http.Error(w, "静态策略未加载", http.StatusServiceUnavailable)
+			return
+		}
+		observed, start := tracker.Snapshot()
+		diff := graph.CompareTopologies(g, observed, start, minWindow)
+
+		data, derr := visualise.RenderJSON(g.Edges, risks, g.Isolation, &diff)
+		if derr != nil {
+			http.Error(w, derr.Error(), http.StatusInternalServerError)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		w.Write(data)
+	})
+	http.Handle("/", http.FileServer(http.Dir("web")))
 
 	go metrics.StartMetricsServer(9090)
 
@@ -119,8 +155,10 @@ func main() {
 					}
 				}
 
-				if len(staticEdges) > 0 && len(liveEdges) > 0 {
-					compareTopologies(staticEdges, liveEdges)
+				if g != nil {
+					observed, start := tracker.Snapshot()
+					diff := graph.CompareTopologies(g, observed, start, minWindow)
+					printDiffSummary(diff)
 				}
 			}
 		}
@@ -142,25 +180,25 @@ func main() {
 	fmt.Println("已退出")
 }
 
-func compareTopologies(staticEdges []graph.Edge, liveEdges []hubble.LiveEdge) {
-	liveSet := make(map[string]bool)
-	for _, e := range liveEdges {
-		key := fmt.Sprintf("%s->%s", e.From, e.To)
-		liveSet[key] = true
+func printDiffSummary(d graph.TopologyDiff) {
+	over := d.ByClass(graph.ClassOverpermissive)
+	drops := d.ByClass(graph.ClassUnexpectedDrop)
+
+	fmt.Printf("  差集: 确认 %d / 过度授权 %d / 意外拒绝 %d\n",
+		len(d.ByClass(graph.ClassConfirmed)), len(over), len(drops))
+
+	if !d.Window.Sufficient {
+		fmt.Printf("  ⚠ 观测窗口仅 %ds，尚不足以判定过度授权\n", d.Window.DurationSeconds)
 	}
 
-	var overpermitted []string
-	for _, e := range staticEdges {
-		key := fmt.Sprintf("%s->%s", e.From, e.To)
-		if !liveSet[key] {
-			overpermitted = append(overpermitted, fmt.Sprintf("%s->%s [%s]", e.From, e.To, graph.PortsLabel(e.Ports)))
+	for _, e := range over {
+		refs := ""
+		if len(e.PolicyRefs) > 0 {
+			refs = " ← " + strings.Join(e.PolicyRefs, ", ")
 		}
+		fmt.Printf("    ! %s → %s [%s]%s\n", e.Src, e.Dst, e.PortLabel(), refs)
 	}
-
-	if len(overpermitted) > 0 {
-		fmt.Printf("  过度授权（策略允许但从未发生）: %d 条\n", len(overpermitted))
-		for _, edge := range overpermitted {
-			fmt.Printf("    ! %s\n", edge)
-		}
+	for _, e := range drops {
+		fmt.Printf("    ✗ %s → %s [%s] 拒绝:%d\n", e.Src, e.Dst, e.PortLabel(), e.Dropped)
 	}
 }

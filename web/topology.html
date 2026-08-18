@@ -3,7 +3,8 @@
 <head>
   <meta charset="utf-8">
   <title>NetworkPolicy Topology</title>
-  <script src="https://unpkg.com/cytoscape@3.28.1/dist/cytoscape.min.js"></script>
+  <!-- 本地引入：集群内运行时通常没有到公网 CDN 的出口 -->
+  <script src="vendor/cytoscape.min.js"></script>
   <style>
     body { margin: 0; background: #1e1e1e; }
     #cy { width: 100vw; height: 100vh; background: #1e1e1e; }
@@ -26,25 +27,83 @@
     }
     #legend { font-size: 14px; line-height: 2.1; padding: 14px 16px; }
     #legend .hint { font-size: 13px; margin-top: 8px; }
+    #legend hr { border: 0; border-top: 1px solid #444; margin: 10px 0 8px; }
+    #legend .sec { font-size: 12px; color: #888; letter-spacing: .05em; }
+    /* 边的图例：用一段线本身表示线型 */
+    #legend .edge {
+        display: inline-block; width: 22px; margin-right: 6px;
+        vertical-align: middle;
+    }
+    .e-confirmed  { border-top: 3px solid  #4caf50; }
+    .e-over       { border-top: 2px dashed #9e9e9e; }
+    .e-drop       { border-top: 2px dotted #e53935; }
+
+    #window {
+        position: absolute; top: 12px; right: 12px; z-index: 10;
+        background: rgba(30,30,30,.9); color: #ddd;
+        padding: 10px 14px; border-radius: 6px;
+        font-size: 13px; max-width: 320px; line-height: 1.6;
+    }
+    #window.insufficient { border-left: 3px solid #ffb300; }
+    #window .warn { color: #ffb300; margin-top: 6px; font-size: 12px; }
+
+    #detail {
+        position: absolute; bottom: 12px; left: 12px; z-index: 10;
+        background: rgba(30,30,30,.95); color: #ddd;
+        padding: 10px 14px; border-radius: 6px;
+        font-size: 13px; max-width: 380px; line-height: 1.7;
+        display: none;
+    }
+    #detail code { color: #ffcc80; }
   </style>
 </head>
 <body>
   <div id="legend">
+    <div class="sec">节点</div>
     <div><span class="box solid-blue"></span> 显式授权(策略明确放行)</div>
     <div><span class="box dashed-orange"></span> 入站默认放行(无策略管控)</div>
     <div><span class="box grey"></span> 完全隔离(无任何放行规则)</div>
-    <div><span class="line dashed"></span> 虚线边 = 因默认放行而存在</div>
-    <div class="hint" style="color:#888">点击节点查看传播路径</div>
+    <hr>
+    <div class="sec">边 · 静态 vs 实际观测</div>
+    <div><span class="edge e-confirmed"></span> 已确认使用(粗细 ∝ 流量)</div>
+    <div><span class="edge e-over"></span> 过度授权(策略允许但无流量)</div>
+    <div><span class="edge e-drop"></span> 意外拒绝(无策略但被拦截)</div>
+    <div class="hint" style="color:#888">点击节点查看传播路径，点击边查看来源策略</div>
   </div>
+  <div id="window"></div>
+  <div id="detail"></div>
   <div id="cy"></div>
 
   <script>
-    fetch('network-topology.json')
-      .then(res => res.json())
+    // 优先取带观测数据的 /api/diff；analyzer 没在跑时退回静态导出文件。
+    fetch('/api/diff')
+      .then(res => { if (!res.ok) throw new Error(res.status); return res.json(); })
+      .catch(() => fetch('network-topology.json').then(res => res.json()))
       .then(data => render(data))
       .catch(err => alert('加载 JSON 失败: ' + err));
 
+    function fmtDuration(sec) {
+      if (sec < 60) return sec + ' 秒';
+      if (sec < 3600) return Math.round(sec / 60) + ' 分钟';
+      return (sec / 3600).toFixed(1) + ' 小时';
+    }
+
+    function renderWindow(w) {
+      const el = document.getElementById('window');
+      if (!w) {
+        el.style.display = 'none';
+        return;
+      }
+      el.innerHTML = '基于最近 <b>' + fmtDuration(w.durationSeconds) + '</b> 的观测'
+        + (w.sufficient ? ''
+           : '<div class="warn">⚠ 观测窗口不足，低频流量可能尚未发生。'
+             + '「过度授权」结论不可作为删除策略的依据。</div>');
+      el.classList.toggle('insufficient', !w.sufficient);
+    }
+
     function render(data) {
+      renderWindow(data.window);
+
       const elements = [];
 
       data.nodes.forEach(n => {
@@ -52,6 +111,7 @@
       });
 
       data.edges.forEach(e => {
+        const forwarded = e.forwarded || 0;
         elements.push({
             data: {
                 id: e.from + '->' + e.to,
@@ -59,7 +119,14 @@
                 target: e.to,
                 ports: e.ports,
                 ingressDefault: e.ingressDefault,
-                egressDefault: e.egressDefault
+                egressDefault: e.egressDefault,
+                cls: e.class || '',
+                forwarded: forwarded,
+                dropped: e.dropped || 0,
+                policyRefs: e.policyRefs || [],
+                unusedPorts: e.unusedPorts || [],
+                // 流量跨度常有几个数量级，线性映射会让低频边看不见。
+                weight: forwarded > 0 ? 1.5 + Math.log10(forwarded + 1) * 2.5 : 1
             }
         });
       });
@@ -101,15 +168,8 @@
                 'border-style': 'solid'
             }
           },
-          {
-            // default-allow 的边:不是被授权的,是漏出来的
-            selector: 'edge[?ingressDefault]',
-            style: {
-                'line-style': 'dashed',
-                'line-color': '#ffb74d',
-                'target-arrow-color': '#ffb74d'
-            }
-        },
+          // 通用边样式放在最前：Cytoscape 后面的规则覆盖前面的，
+          // 放在最后会把下面所有分类样式盖掉。
           {
             selector: 'edge',
             style: {
@@ -118,6 +178,48 @@
               'target-arrow-color': '#bbb',
               'target-arrow-shape': 'triangle',
               'curve-style': 'bezier'
+            }
+          },
+          {
+            // default-allow 的边:不是被授权的,是漏出来的
+            selector: 'edge[?ingressDefault]',
+            style: {
+                'line-style': 'dashed',
+                'line-color': '#ffb74d',
+                'target-arrow-color': '#ffb74d'
+            }
+          },
+          {
+            // 静态允许 + 观测到转发
+            selector: 'edge[cls = "confirmed"]',
+            style: {
+              'line-style': 'solid',
+              'line-color': '#4caf50',
+              'target-arrow-color': '#4caf50',
+              'width': 'data(weight)',
+              'opacity': 0.95
+            }
+          },
+          {
+            // 静态允许 + 窗口内无流量
+            selector: 'edge[cls = "overpermissive"]',
+            style: {
+              'line-style': 'dashed',
+              'line-color': '#9e9e9e',
+              'target-arrow-color': '#9e9e9e',
+              'width': 1.5,
+              'opacity': 0.55
+            }
+          },
+          {
+            // 静态图无此边，却观测到 DROPPED
+            selector: 'edge[cls = "unexpected_drop"]',
+            style: {
+              'line-style': 'dotted',
+              'line-color': '#e53935',
+              'target-arrow-color': '#e53935',
+              'width': 2.5,
+              'opacity': 0.9
             }
           }
         ],
@@ -129,6 +231,8 @@
             animate: false            // 关掉动画,直接出最终布局
         }
       });
+
+      window.cy = cy; // 方便在浏览器控制台里查图
 
       cy.on('click', 'node', evt => {
       const start = evt.target;
@@ -166,10 +270,37 @@
   }
 });
 
+      const detail = document.getElementById('detail');
+
+      cy.on('click', 'edge', evt => {
+        const d = evt.target.data();
+        const label = {
+          confirmed: '✅ 已确认使用',
+          overpermissive: '⚠️ 过度授权',
+          unexpected_drop: '🚫 意外拒绝'
+        }[d.cls] || '静态边';
+
+        let html = '<b>' + d.source + ' → ' + d.target + '</b><br>' + label;
+        if (d.forwarded) html += ' · 转发 ' + d.forwarded;
+        if (d.dropped)   html += ' · 拒绝 ' + d.dropped;
+        if (d.unusedPorts && d.unusedPorts.length) {
+          html += '<br>未使用端口: <code>' + d.unusedPorts.join(', ') + '</code>';
+        }
+        if (d.policyRefs && d.policyRefs.length) {
+          html += '<br>来源策略: <code>' + d.policyRefs.join('</code>, <code>') + '</code>';
+        } else if (d.cls === 'overpermissive') {
+          html += '<br><span style="color:#888">无策略覆盖(default-allow)，需新增策略而非修改</span>';
+        }
+
+        detail.innerHTML = html;
+        detail.style.display = 'block';
+      });
+
       // 点空白处恢复
       cy.on('tap', evt => {
             if (evt.target === cy) {
                 cy.elements().removeStyle();
+                detail.style.display = 'none';
             }
         });
 
