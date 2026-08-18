@@ -105,6 +105,7 @@ func Dedup(edges []Edge) []Edge {
 		key := edgeKey{e.From, e.To}
 		if existing, ok := merged[key]; ok {
 			existing.Ports = mergePortRanges(existing.Ports, e.Ports)
+			existing.PolicyRefs = mergeRefs(existing.PolicyRefs, e.PolicyRefs...)
 		} else {
 			eCopy := e
 			merged[key] = &eCopy

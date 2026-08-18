@@ -143,24 +143,30 @@ func tryBuildEdge(src, dst string, iso map[string]*PodIsolation,
 	srcIso := iso[src]
 	dstIso := iso[dst]
 
+	var refs []string
+
 	egressDefault := !srcIso.EgressIsolated
 	var egressPorts []PortRange
 	if !egressDefault {
+		var egressRefs []string
 		var ok bool
-		egressPorts, ok = checkEgressAllow(src, dst, policies)
+		egressPorts, egressRefs, ok = checkEgressAllow(src, dst, policies)
 		if !ok {
 			return Edge{}, false
 		}
+		refs = mergeRefs(refs, egressRefs...)
 	}
 
 	ingressDefault := !dstIso.IngressIsolated
 	var ingressPorts []PortRange
 	if !ingressDefault {
+		var ingressRefs []string
 		var ok bool
-		ingressPorts, ok = checkIngressAllow(src, dst, policies)
+		ingressPorts, ingressRefs, ok = checkIngressAllow(src, dst, policies)
 		if !ok {
 			return Edge{}, false
 		}
+		refs = mergeRefs(refs, ingressRefs...)
 	}
 
 	ports := effectivePorts(egressDefault, egressPorts, ingressDefault, ingressPorts)
@@ -174,11 +180,13 @@ func tryBuildEdge(src, dst string, iso map[string]*PodIsolation,
 		Ports:          ports,
 		EgressDefault:  egressDefault,
 		IngressDefault: ingressDefault,
+		PolicyRefs:     refs,
 	}, true
 }
 
-func checkEgressAllow(src, dst string, policies []NetworkPolicy) ([]PortRange, bool) {
+func checkEgressAllow(src, dst string, policies []NetworkPolicy) ([]PortRange, []string, bool) {
 	var allowed []PortRange
+	var refs []string
 	for _, p := range policies {
 		if !selectorMatchesPod(p.Spec.PodSelector, src) {
 			continue
@@ -190,17 +198,19 @@ func checkEgressAllow(src, dst string, policies []NetworkPolicy) ([]PortRange, b
 		for _, rule := range p.Spec.Egress {
 			if peerMatchesPod(rule.To, dst) {
 				allowed = append(allowed, normalizePorts(rule.Ports)...)
+				refs = mergeRefs(refs, PolicyRef(p))
 			}
 		}
 	}
 	if len(allowed) > 0 {
-		return allowed, true
+		return allowed, refs, true
 	}
-	return nil, false
+	return nil, nil, false
 }
 
-func checkIngressAllow(src, dst string, policies []NetworkPolicy) ([]PortRange, bool) {
+func checkIngressAllow(src, dst string, policies []NetworkPolicy) ([]PortRange, []string, bool) {
 	var allowed []PortRange
+	var refs []string
 	for _, p := range policies {
 		if !selectorMatchesPod(p.Spec.PodSelector, dst) {
 			continue
@@ -212,13 +222,14 @@ func checkIngressAllow(src, dst string, policies []NetworkPolicy) ([]PortRange, 
 		for _, rule := range p.Spec.Ingress {
 			if peerMatchesPod(rule.From, src) {
 				allowed = append(allowed, normalizePorts(rule.Ports)...)
+				refs = mergeRefs(refs, PolicyRef(p))
 			}
 		}
 	}
 	if len(allowed) > 0 {
-		return allowed, true
+		return allowed, refs, true
 	}
-	return nil, false
+	return nil, nil, false
 }
 
 func effectivePorts(egressDefault bool, egressPorts []PortRange,
