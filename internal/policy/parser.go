@@ -34,3 +34,12 @@ func LoadFromFile(path string) ([]graph.NetworkPolicy, []graph.Edge, map[string]
 
 	return policies, edges, isolation, allPods, nil
 }
+
+// LoadGraph reads a YAML file and returns the assembled reachability graph.
+func LoadGraph(path string) (*graph.Graph, error) {
+	policies, edges, isolation, _, err := LoadFromFile(path)
+	if err != nil {
+		return nil, err
+	}
+	return &graph.Graph{Policies: policies, Edges: edges, Isolation: isolation}, nil
+}
