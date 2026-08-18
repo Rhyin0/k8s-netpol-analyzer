@@ -20,3 +20,10 @@ resources:
 
 grafana:
   dashboardEnabled: true
+
+serviceMonitor:
+  enabled: false
+
+monitoring:
+  enabled: false
+  namespace: monitoring

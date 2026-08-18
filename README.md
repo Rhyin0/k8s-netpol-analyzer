@@ -207,6 +207,40 @@ The program will:
 
 ### 8. Generate traffic
 
+#### Basic, continue:
+```bash
+kubectl -n demo exec deploy/<client> -- \
+  sh -c 'while true; do wget -qO- --timeout=2 http://<target>:80 >/dev/null; sleep 1; done' &
+```
+#### Be denied:
+```bash
+kubectl -n demo exec deploy/<client> -- \
+  sh -c 'while true; do wget -qO- --timeout=2 http://<被禁止的target>:80 >/dev/null 2>&1; sleep 2; done' &
+```
+#### High frequency & Low Frequency:
+```bash
+# high
+kubectl -n demo exec deploy/<clientA> -- \
+  sh -c 'while true; do wget -qO- --timeout=1 http://<target>; sleep 0.2; done' &
+
+# low
+kubectl -n demo exec deploy/<clientB> -- \
+  sh -c 'while true; do wget -qO- --timeout=2 http://<target>; sleep 5; done' &
+```
+
+#### Out of Clusters:
+```bash
+kubectl -n demo exec deploy/<client> -- \
+  sh -c 'while true; do wget -qO- --timeout=3 http://1.1.1.1 >/dev/null 2>&1; sleep 3; done' &
+```
+
+#### See ports diff:
+```bash
+kubectl -n demo exec deploy/<client> -- \
+  sh -c 'while true; do nc -z -w2 <target> 5432; sleep 2; done' &
+```
+
+#### Others:
 ```bash
 kubectl exec -n demo frontend -- wget -qO- --timeout=2 api-server.demo.svc.cluster.local
 kubectl exec -n demo api-server -- wget -qO- --timeout=2 order-service.demo.svc.cluster.local
@@ -217,6 +251,24 @@ kubectl exec -n demo api-server -- wget -qO- --timeout=2 redis-cache.demo.svc.cl
 ### 9. View the dashboard
 
 Open `http://localhost:3000` (admin / admin123) and view the NetPol Analyzer dashboard.
+
+### 10. Frontend Static Topoloty Visualiztion
+cd D:\projects\k8s-netpol-analyzer\web
+python -m http.server 8000
+
+open http://localhost:8000/topology.html in web server
+
+If you need a new JSON, do these follows:
+cd D:\projects\k8s-netpol-analyzer
+go run ./cmd/analyzer
+
+### 11. CLI query
+default: /testdata/policies.yaml
+
+examples:
+.\query -src frontend -dst database -f .\testdata\test-netpol.yaml
+or
+.\query -src frontend -dst database -f testdata/test-netpol.yaml
 
 ## Prometheus Metrics
 
@@ -325,6 +377,12 @@ Node borders distinguish between three isolation states: solid blue (explicitly 
 ![spread](docs/spread.png)
 
 Click any node to view lateral movement paths; color intensity corresponds to the BFS propagation level.
+
+监控集成默认关闭，装了 kube-prometheus-stack 后用 --set serviceMonitor.enabled=true 开启
+
+## Attention
+1. The clusters cannot be stopped in desktop, or the status about k8s will not recover fully. Please delete and reconstruct clusters for each time.
+2. Monitoring integration is disabled by default; after installing kube-prometheus-stack, enable it using `--set serviceMonitor.enabled=true`.
 
 ## Future Work
 

@@ -1,7 +1,7 @@
 kind: Cluster
 apiVersion: kind.x-k8s.io/v1alpha4
 networking:
-  disableDefaultCNI: true
+  disableDefaultCNI: true   // default CNI disabled to allow Cilium to be installed
 nodes:
   - role: control-plane
   - role: worker
