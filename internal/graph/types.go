@@ -2,6 +2,7 @@ package graph
 
 import (
 	"fmt"
+	"slices"
 	"sort"
 	"strings"
 )
@@ -62,6 +63,22 @@ func (p PortRange) IsAllPorts() bool {
 	return p.Port == 0 && p.Protocol == ""
 }
 
+// Graph bundles the parsed policies with everything BuildEdges derives from
+// them. The package previously passed edges and the isolation map around as
+// separate values; analyses that need both (diffing static reachability against
+// observed traffic) take a *Graph instead.
+type Graph struct {
+	Policies  []NetworkPolicy
+	Edges     []Edge
+	Isolation map[string]*PodIsolation
+}
+
+// NewGraph builds the reachability graph for a policy set.
+func NewGraph(policies []NetworkPolicy) *Graph {
+	edges, isolation := BuildEdges(policies)
+	return &Graph{Policies: policies, Edges: edges, Isolation: isolation}
+}
+
 // PodIsolation tracks whether a pod is isolated in each direction by at least one policy.
 type PodIsolation struct {
 	IngressIsolated bool
@@ -77,6 +94,34 @@ type Edge struct {
 	Ports          []PortRange
 	EgressDefault  bool // src has no egress policy coverage → default allow
 	IngressDefault bool // dst has no ingress policy coverage → default allow
+
+	// PolicyRefs lists the policies that permit this edge, as "namespace/name".
+	// Once a report says an edge is unused, the next question is which YAML to
+	// edit — without provenance the finding is not actionable. A default-allow
+	// side contributes no ref, since nothing was written to permit it.
+	PolicyRefs []string
+}
+
+// PolicyRef renders a policy's identity as "namespace/name".
+func PolicyRef(p NetworkPolicy) string {
+	ns := p.Metadata.Namespace
+	if ns == "" {
+		ns = "default"
+	}
+	return ns + "/" + p.Metadata.Name
+}
+
+func mergeRefs(dst []string, src ...string) []string {
+	for _, s := range src {
+		if s == "" {
+			continue
+		}
+		if !slices.Contains(dst, s) {
+			dst = append(dst, s)
+		}
+	}
+	sort.Strings(dst)
+	return dst
 }
 
 // PortsLabel returns a human-readable label for the edge's ports.

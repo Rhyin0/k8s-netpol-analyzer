@@ -11,6 +11,9 @@ import (
 	observerpb "github.com/cilium/cilium/api/v1/observer"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
+
+	"github.com/Rhyin0/k8s-netpol-analyzer/internal/flowstat"
+	"github.com/Rhyin0/k8s-netpol-analyzer/internal/graph"
 )
 
 // FlowRecord 表示一条从 Hubble 采集到的流量记录
@@ -35,6 +38,27 @@ type FlowCollector struct {
 	hubbleAddr string
 	namespace  string       // 只关注这个 namespace 的流量
 	totalCount atomic.Int64 // 已采集的 Flow 总数
+
+	// 静态图 + 累计观测表，由 AttachTracker 注入。两者都是只读/自带锁的，
+	// 不需要 fc.mu 保护。
+	graph   *graph.Graph
+	tracker *flowstat.Tracker
+}
+
+// AttachTracker 让采集循环在写入 ring buffer 之后，把每条 flow 映射到静态图的
+// 边上并累计到 tracker。ring buffer 会淘汰旧记录，tracker 不会，所以「这条边
+// 历史上是否出现过」只能问 tracker。
+func (fc *FlowCollector) AttachTracker(g *graph.Graph, t *flowstat.Tracker) {
+	fc.mu.Lock()
+	defer fc.mu.Unlock()
+	fc.graph = g
+	fc.tracker = t
+}
+
+func (fc *FlowCollector) topology() (*graph.Graph, *flowstat.Tracker) {
+	fc.mu.RLock()
+	defer fc.mu.RUnlock()
+	return fc.graph, fc.tracker
 }
 
 // LiveEdge 表示实际观测到的一条流量边
@@ -143,21 +167,11 @@ func (fc *FlowCollector) observe(ctx context.Context, client observerpb.Observer
 			continue
 		}
 
-		// 获取目标端口
-		var dstPort uint32
-		l4 := flow.GetL4()
-		if l4 != nil {
-			if tcp := l4.GetTCP(); tcp != nil {
-				dstPort = tcp.GetDestinationPort()
-			} else if udp := l4.GetUDP(); udp != nil {
-				dstPort = udp.GetDestinationPort()
-			}
-		}
-
-		// 获取协议
-		protocol := "TCP"
-		if l4 != nil && l4.GetUDP() != nil {
-			protocol = "UDP"
+		// 获取目标端口和协议（与 toEdgeKey 共用同一份解析逻辑）
+		dstPort, protocol, ok := l4Info(flow)
+		if !ok {
+			// 没有 L4 层（ICMP 等），保持原有默认值继续记录明细
+			protocol = "TCP"
 		}
 
 		// 获取判决结果
@@ -185,6 +199,14 @@ func (fc *FlowCollector) observe(ctx context.Context, client observerpb.Observer
 
 		fc.updateEdge(record)
 		fc.mu.Unlock()
+
+		// 累计观测表。Tracker 自带锁，放在 fc.mu 之外，避免解析节点 ID 的
+		// 开销挡住采集循环。
+		if g, tracker := fc.topology(); tracker != nil {
+			if key, ok := toEdgeKey(flow, g); ok {
+				tracker.Record(key, verdict != "FORWARDED")
+			}
+		}
 	}
 }
 

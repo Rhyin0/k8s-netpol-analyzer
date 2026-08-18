@@ -299,33 +299,96 @@ go run ./cmd/query -src nginx-ingress -dst user-db -f testdata/policies.yaml
 
 Output shows the full path with port details at each hop, or the reason traffic is blocked.
 
+## Over-Permission Analysis
+
+Static analysis answers "what *could* talk to what". Hubble answers "what *did*". The difference is over-permission: rules that grant access nothing uses.
+
+```bash
+go run ./cmd/diff -f testdata/policies.yaml -collect 30m -min-window 30m
+```
+
+| Flag | Default | Meaning |
+|---|---|---|
+| `-f` | `testdata/policies.yaml` | Policy file |
+| `-hubble` | `localhost:4245` | Hubble relay address |
+| `-collect` | `60s` | How long to collect flows |
+| `-min-window` | `30m` | Minimum window for a finding to be trustworthy |
+| `-n` | *(all)* | Restrict to one namespace |
+
+Every permitted `(src, dst, port, proto)` tuple lands in one of three classes:
+
+- **`confirmed`** — permitted and observed forwarding.
+- **`overpermissive`** — permitted, but no traffic in the window.
+- **`unexpected_drop`** — *not* permitted, but traffic was observed being dropped. Either the policy is tighter than what the workloads actually do, or something is probing a path it should not.
+
+Findings name their source policies as `namespace/name`, so "this edge is unused" comes with the answer to "which YAML do I edit".
+
+### Comparison is per port, not per node pair
+
+The most common form of over-permission is a rule opening a port range where only one port is ever used. Matching on the node pair alone reports such an edge as fully confirmed and misses the finding entirely, so ports are part of the comparison key. An edge with one used and one unused port is reported as over-permissive, and names the unused port.
+
+A rule with no `ports:` (or a default-allow edge) permits everything, so it stays over-permissive even when some traffic confirms it — there is no bound to satisfy.
+
+### Why observation is tracked separately from the ring buffer
+
+`internal/flowstat` keeps an append-only table of observed edges, independent of the Hubble ring buffer. The ring buffer evicts old records, so a low-frequency edge — a nightly batch job reaching a database — gets flushed out by high-volume traffic and would then look like it never happened. Deriving "was this edge ever used?" from the ring buffer produces false over-permission findings. The ring buffer keeps flow detail and is allowed to forget; the tracker keeps one counter per edge and never does.
+
+### Trust the window before trusting the finding
+
+A short window cannot distinguish "never used" from "not used yet". Every report carries `window.sufficient`, and the CLI, the API and the web view all warn when the collection period is below `-min-window`. **Do not delete a policy based on an insufficient window** — set `-collect` to span at least one full cycle of your periodic workloads.
+
+### Node identity
+
+Observed flows are mapped onto graph nodes through the same `LabelStr` definition the policy parser uses, via its inverse (`graph.ResolveNodeID`). Resolution prefers the pod's Kubernetes labels and falls back to matching the pod-name prefix when Hubble ships flows without label metadata. Endpoints that resolve to nothing — cluster-external traffic, host identities, workloads no policy mentions — are excluded rather than guessed at.
+
+### Web view
+
+`cmd/analyzer` serves the topology and a live diff on port 9090:
+
+```bash
+go run ./cmd/analyzer          # then open http://localhost:9090/topology.html
+```
+
+- `GET /api/diff` — topology JSON with per-edge `class`, `forwarded`, `dropped`, `policyRefs`, `unusedPorts`, plus the observation window.
+- Confirmed edges render solid green with width scaled by `log10(forwarded)`; over-permissive edges grey dashed; unexpected drops red dotted.
+- Clicking an edge shows its unused ports and source policies.
+- `DIFF_MIN_WINDOW` (e.g. `1h`) overrides the sufficiency threshold.
+
+Cytoscape is vendored under `web/vendor/` — in-cluster deployments generally have no CDN egress.
+
 ## Project Structure
 
 ```
 k8s-netpol-analyzer/
 ├── cmd/
-│   ├── analyzer/main.go     # Entry point: static analysis + dynamic service
+│   ├── analyzer/main.go     # Entry point: static analysis + dynamic service + /api/diff
+│   ├── diff/main.go         # CLI over-permission report
 │   └── query/main.go        # CLI reachability query tool
 ├── internal/
 │   ├── graph/
-│   │   ├── types.go         # Core types: Edge, PortRange, PodIsolation
-│   │   ├── build.go         # Edge building with both-sides validation
+│   │   ├── types.go         # Core types: Graph, Edge, PortRange, PodIsolation
+│   │   ├── build.go         # Edge building with both-sides validation + policy refs
 │   │   ├── build_test.go    # 13 unit tests for edge semantics
-│   │   ├── util.go          # LabelStr, Dedup with port merging
+│   │   ├── diff.go          # CompareTopologies: static vs observed
+│   │   ├── util.go          # LabelStr and its inverse, Dedup with port merging
 │   │   ├── analyzer.go      # BFS propagation simulation
 │   │   ├── query.go         # Reachability query with path tracing
 │   │   └── critical.go      # Articulation point detection, risk report
+│   ├── flowstat/
+│   │   └── tracker.go       # Append-only observed-edge table (no internal deps)
 │   ├── policy/
 │   │   ├── parser.go        # YAML parsing, returns edges + isolation map
 │   │   └── parser_test.go   # Integration test against policies.yaml
 │   ├── compliance/
 │   │   └── compliance.go    # Policy compliance checking (6 rules)
 │   ├── hubble/
-│   │   └── collector.go     # Hubble gRPC client, flow collection
+│   │   ├── hubble.go        # Hubble gRPC client, flow collection
+│   │   └── edgekey.go       # Flow -> graph node resolution
 │   ├── metrics/
 │   │   └── metrics.go       # Prometheus metrics + HTTP server
 │   └── visualise/
-│       └── visualize.go     # Graphviz DOT export
+│       ├── visualize.go     # Graphviz DOT export
+│       └── json.go          # JSON export with diff overlay
 ├── testdata/                 # Sample NetworkPolicy YAML files (22 policies)
 ├── kind-config.yaml          # Kind cluster configuration
 ├── test-apps.yaml            # Test pod definitions
