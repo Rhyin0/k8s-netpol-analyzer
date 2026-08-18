@@ -62,6 +62,22 @@ func (p PortRange) IsAllPorts() bool {
 	return p.Port == 0 && p.Protocol == ""
 }
 
+// Graph bundles the parsed policies with everything BuildEdges derives from
+// them. The package previously passed edges and the isolation map around as
+// separate values; analyses that need both (diffing static reachability against
+// observed traffic) take a *Graph instead.
+type Graph struct {
+	Policies  []NetworkPolicy
+	Edges     []Edge
+	Isolation map[string]*PodIsolation
+}
+
+// NewGraph builds the reachability graph for a policy set.
+func NewGraph(policies []NetworkPolicy) *Graph {
+	edges, isolation := BuildEdges(policies)
+	return &Graph{Policies: policies, Edges: edges, Isolation: isolation}
+}
+
 // PodIsolation tracks whether a pod is isolated in each direction by at least one policy.
 type PodIsolation struct {
 	IngressIsolated bool
