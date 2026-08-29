@@ -1,5 +1,7 @@
 package graph
 
+// how to analysis .yaml files and build edges + graphs
+
 import (
 	"fmt"
 	"slices"
