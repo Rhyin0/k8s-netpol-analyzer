@@ -304,14 +304,14 @@ Output shows the full path with port details at each hop, or the reason traffic 
 Static analysis answers "what *could* talk to what". Hubble answers "what *did*". The difference is over-permission: rules that grant access nothing uses.
 
 ```bash
-go run ./cmd/diff -f testdata/policies.yaml -collect 30m -min-window 30m
+go run ./cmd/analyzer -f testdata/policies.yaml -collect 30m -min-window 30m
 ```
 
 | Flag | Default | Meaning |
 |---|---|---|
 | `-f` | `testdata/policies.yaml` | Policy file |
 | `-hubble` | `localhost:4245` | Hubble relay address |
-| `-collect` | `60s` | How long to collect flows |
+| `-collect` | `0` | How long to collect flows; `0` keeps running and serves the web view |
 | `-min-window` | `30m` | Minimum window for a finding to be trustworthy |
 | `-n` | *(all)* | Restrict to one namespace |
 
@@ -362,7 +362,6 @@ Cytoscape is vendored under `web/vendor/` — in-cluster deployments generally h
 k8s-netpol-analyzer/
 ├── cmd/
 │   ├── analyzer/main.go     # Entry point: static analysis + dynamic service + /api/diff
-│   ├── diff/main.go         # CLI over-permission report
 │   └── query/main.go        # CLI reachability query tool
 ├── internal/
 │   ├── graph/
