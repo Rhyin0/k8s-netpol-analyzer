@@ -50,6 +50,9 @@ no rule matches source labels app=gateway
 
 ## Architecture
 
+完整的结构图（源码文件 → 构建产物 → 集群内节点位置 → 运行时数据流与端口）见
+[`docs/architecture.md`](docs/architecture.md)。下面是精简版：
+
 ```
                     Kind Cluster (Docker Desktop)
 ┌──────────────────────────────────────────────────────────┐
